@@ -1,19 +1,19 @@
-// Package debug allows to debug services
+// Package debug implements metrics/logging/introspection/... of go-micro services
 package debug
 
 import (
-	"fmt"
-	"time"
-
-	"github.com/micro/cli"
-	"github.com/micro/go-micro"
-	"github.com/micro/go-micro/debug/log"
-	dbg "github.com/micro/go-micro/debug/service"
-)
-
-const (
-	// LogsUsage message for logs command
-	LogsUsage = "Required usage: micro logs --name example"
+	"github.com/micro/cli/v2"
+	"github.com/micro/go-micro/v2"
+	"github.com/micro/go-micro/v2/debug/log"
+	"github.com/micro/go-micro/v2/debug/log/kubernetes"
+	dservice "github.com/micro/go-micro/v2/debug/service"
+	ulog "github.com/micro/go-micro/v2/util/log"
+	logHandler "github.com/micro/micro/v2/debug/log/handler"
+	pblog "github.com/micro/micro/v2/debug/log/proto"
+	"github.com/micro/micro/v2/debug/stats"
+	statshandler "github.com/micro/micro/v2/debug/stats/handler"
+	pbstats "github.com/micro/micro/v2/debug/stats/proto"
+	"github.com/micro/micro/v2/debug/web"
 )
 
 var (
@@ -23,55 +23,8 @@ var (
 	Address = ":8089"
 )
 
-func getLogs(ctx *cli.Context, srvOpts ...micro.Option) {
-	log.Name("debug")
-
-	// Init plugins
-	for _, p := range Plugins() {
-		p.Init(ctx)
-	}
-
-	// get the args
-	name := ctx.String("name")
-	since := ctx.String("since")
-	count := ctx.Int("count")
-	stream := ctx.Bool("stream")
-
-	// must specify service name
-	if len(name) == 0 {
-		log.Fatal(LogsUsage)
-	}
-
-	service := dbg.NewDebug(name)
-
-	var options []log.ReadOption
-
-	d, err := time.ParseDuration(since)
-	if err == nil {
-		readSince := time.Now().Add(-d)
-		options = append(options, log.Since(readSince))
-	}
-
-	if count > 0 {
-		options = append(options, log.Count(count))
-	}
-
-	if stream {
-		options = append(options, log.Stream(stream))
-	}
-
-	logs, err := service.Logs(options...)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	for record := range logs {
-		fmt.Printf("%v\n", record)
-	}
-}
-
-func run(ctx *cli.Context, srvOpts ...micro.Option) {
-	log.Name("debug")
+func Run(ctx *cli.Context, srvOpts ...micro.Option) {
+	ulog.Name("debug")
 
 	// Init plugins
 	for _, p := range Plugins() {
@@ -82,12 +35,40 @@ func run(ctx *cli.Context, srvOpts ...micro.Option) {
 		Address = ctx.String("address")
 	}
 
-	if len(ctx.GlobalString("server_name")) > 0 {
-		Name = ctx.GlobalString("server_name")
+	if len(ctx.String("server_name")) > 0 {
+		Name = ctx.String("server_name")
 	}
 
 	if len(Address) > 0 {
 		srvOpts = append(srvOpts, micro.Address(Address))
+	}
+
+	// TODO: parse out --log_source
+	// if kubernetes then .. go-micro/debug/log/kubernetes.New
+
+	// default log initialiser
+	newLog := func(service string) log.Log {
+		// service log calls the actual service for the log
+		return dservice.NewLog(
+			// log with service name
+			log.Name(service),
+		)
+	}
+
+	source := ctx.String("log")
+	switch source {
+	case "service":
+		newLog = func(service string) log.Log {
+			return dservice.NewLog(
+				log.Name(service),
+			)
+		}
+	case "kubernetes":
+		newLog = func(service string) log.Log {
+			return kubernetes.NewLog(
+				log.Name(service),
+			)
+		}
 	}
 
 	// append name
@@ -96,65 +77,110 @@ func run(ctx *cli.Context, srvOpts ...micro.Option) {
 	// new service
 	service := micro.NewService(srvOpts...)
 
+	done := make(chan bool)
+	defer func() {
+		close(done)
+	}()
+
+	// stats handler
+	statsHandler, err := statshandler.New(done, ctx.Int("window"))
+	if err != nil {
+		ulog.Fatal(err)
+	}
+
+	// log handler
+	lgHandler := &logHandler.Log{
+		// create the log map
+		Logs: make(map[string]log.Log),
+		// Create the new func
+		New: newLog,
+	}
+
+	// Register the stats handler
+	pbstats.RegisterStatsHandler(service.Server(), statsHandler)
+
+	// Register the logs handler
+	pblog.RegisterLogHandler(service.Server(), lgHandler)
+
 	// TODO: implement debug service for k8s cruft
 
 	// start debug service
 	if err := service.Run(); err != nil {
-		log.Errorf("error running service: %v", err)
-	}
-
-	log.Infof("successfully stopped")
-}
-
-// Flags is shared flags so we don't have to continually re-add
-func Flags() []cli.Flag {
-	return []cli.Flag{
-		cli.StringFlag{
-			Name:  "name",
-			Usage: "Set the name of the service to debug",
-		},
-		cli.StringFlag{
-			Name:  "version",
-			Usage: "Set the version of the service to debug",
-			Value: "latest",
-		},
-		cli.BoolFlag{
-			Name:  "stream",
-			Usage: "Set to stream logs continuously",
-		},
-		cli.StringFlag{
-			Name:  "since",
-			Usage: "Set to the relative time from which to show the logs for e.g. 1h",
-		},
-		cli.IntFlag{
-			Name:  "count",
-			Usage: "Set to query the last number of log events",
-		},
+		ulog.Fatal(err)
 	}
 }
 
-func Commands(options ...micro.Option) []cli.Command {
-	command := []cli.Command{
+// Commands populates the debug commands
+func Commands(options ...micro.Option) []*cli.Command {
+	command := []*cli.Command{
 		{
 			Name:  "debug",
 			Usage: "Run the micro debug service",
 			Flags: []cli.Flag{
-				cli.StringFlag{
-					Name:   "address",
-					Usage:  "Set the registry http address e.g 0.0.0.0:8089",
-					EnvVar: "MICRO_SERVER_ADDRESS",
+				&cli.StringFlag{
+					Name:    "address",
+					Usage:   "Set the registry http address e.g 0.0.0.0:8089",
+					EnvVars: []string{"MICRO_SERVER_ADDRESS"},
+				},
+				&cli.StringFlag{
+					Name:    "log",
+					Usage:   "Specify the log source to use e.g service, kubernetes",
+					EnvVars: []string{"MICRO_DEBUG_LOG"},
+					Value:   "service",
+				},
+				&cli.IntFlag{
+					Name:    "window",
+					Usage:   "Specifies how many seconds of stats snapshots to retain in memory",
+					EnvVars: []string{"MICRO_DEBUG_WINDOW"},
+					Value:   0,
 				},
 			},
-			Action: func(ctx *cli.Context) {
-				run(ctx, options...)
+			Action: func(ctx *cli.Context) error {
+				Run(ctx, options...)
+				return nil
+			},
+			Subcommands: []*cli.Command{
+				&cli.Command{
+					Name:  "web",
+					Usage: "Start the debug web dashboard",
+					Flags: []cli.Flag{
+						&cli.StringFlag{
+							Name:    "netdata_url",
+							Usage:   "The Full URL to the netdata server",
+							EnvVars: []string{"MICRO_NETDATA_URL"},
+							Value:   "http://localhost:19999",
+						},
+					},
+					Action: func(c *cli.Context) error {
+						web.Run(c)
+						return nil
+					},
+				},
+				&cli.Command{
+					Name:  "stats",
+					Usage: "Start the debug stats scraper",
+					Action: func(c *cli.Context) error {
+						stats.Run(c)
+						return nil
+					},
+				},
 			},
 		},
 		{
-			Name:  "logs",
+			Name:  "log",
 			Usage: "Get logs for a service",
-			Flags: Flags(),
-			Action: func(ctx *cli.Context) {
-				getLogs(ctx, options...)
+			Flags: logFlags(),
+			Action: func(ctx *cli.Context) error {
+				getLog(ctx, options...)
+				return nil
+			},
+		},
+		{
+			Name:  "trace",
+			Usage: "Get tracing info from a service",
+			Action: func(ctx *cli.Context) error {
+				getTrace(ctx, options...)
+				return nil
 			},
 		},
 	}

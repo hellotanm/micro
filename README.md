@@ -1,17 +1,17 @@
 # Micro [![License](https://img.shields.io/:license-apache-blue.svg)](https://opensource.org/licenses/Apache-2.0) [![GoDoc](https://godoc.org/github.com/micro/micro?status.svg)](https://godoc.org/github.com/micro/micro) [![Travis CI](https://travis-ci.org/micro/micro.svg?branch=master)](https://travis-ci.org/micro/micro) [![Go Report Card](https://goreportcard.com/badge/micro/micro)](https://goreportcard.com/report/github.com/micro/micro)
 
-Micro is a runtime for microservice development.
+Micro is a runtime environment for microservice development.
 
 ## Overview
 
-Micro addresses the key requirements for building scalable systems. It takes the microservice architecture pattern and transforms it into
-a set of tools which act as the building blocks of a platform. Micro deals with the complexity of distributed systems and provides
-simple abstractions already understood by developers.
+Micro addresses the key requirements for building scalable systems in the cloud and beyond. It leverages the microservice
+architecture pattern and provides a set of services which act as the building blocks of a platform. Micro deals
+with the complexity of distributed systems and provides simpler programmable abstractions to build on.
 
 <img src="https://micro.mu/runtime3.svg" />
 
-Technology is constantly evolving. The infrastructure stack is always changing. Micro is a pluggable platform which addresses these issues.
-Plug in any stack or underlying technology. Build future-proof systems using micro.
+Technology is constantly evolving. The infrastructure stack is always changing. Micro is a platform which
+addresses these issues with a pluggable foundation and strongly defined apis to build on. Plug into any stack or cloud.
 
 Follow us on [Twitter](https://twitter.com/microhq) or join the [Slack](https://micro.mu/slack) community.
 
@@ -98,7 +98,7 @@ export GO111MODULE=on
 micro new example
 
 # run the service
-go run example/main.go
+micro run example --local
 
 # list services
 micro list services
@@ -115,4 +115,4 @@ See all the options
 micro --help
 ```
 
-See the [docs](https://micro.mu/docs/) for detailed information on the architecture, installation and use of the platform.
+See the [docs](https://micro.mu/docs/runtime.html) for detailed information on the architecture, installation and use of the platform.
