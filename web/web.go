@@ -25,11 +25,11 @@ import (
 	httpapi "github.com/micro/go-micro/v2/api/server/http"
 	"github.com/micro/go-micro/v2/client/selector"
 	"github.com/micro/go-micro/v2/config/cmd"
+	log "github.com/micro/go-micro/v2/logger"
 	"github.com/micro/go-micro/v2/registry"
 	"github.com/micro/go-micro/v2/registry/cache"
 	cfstore "github.com/micro/go-micro/v2/store/cloudflare"
 	"github.com/micro/go-micro/v2/sync/lock/memory"
-	"github.com/micro/go-micro/v2/util/log"
 	"github.com/micro/micro/v2/internal/handler"
 	"github.com/micro/micro/v2/internal/helper"
 	"github.com/micro/micro/v2/internal/stats"
@@ -230,10 +230,6 @@ func faviconHandler(w http.ResponseWriter, r *http.Request) {
 	return
 }
 
-func (s *srv) cliHandler(w http.ResponseWriter, r *http.Request) {
-	render(w, r, cliTemplate, nil)
-}
-
 func (s *srv) indexHandler(w http.ResponseWriter, r *http.Request) {
 	helper.ServeCORS(w, r)
 
@@ -410,7 +406,7 @@ func render(w http.ResponseWriter, r *http.Request, tmpl string, data interface{
 }
 
 func run(ctx *cli.Context, srvOpts ...micro.Option) {
-	log.Name("web")
+	log.Init(log.WithFields(map[string]interface{}{"service": "web"}))
 
 	if len(ctx.String("server_name")) > 0 {
 		Name = ctx.String("server_name")
@@ -451,9 +447,8 @@ func run(ctx *cli.Context, srvOpts ...micro.Option) {
 	}
 
 	s.HandleFunc("/client", s.callHandler)
-	s.HandleFunc("/registry", s.registryHandler)
-	s.HandleFunc("/registry/service/{name}", s.registryHandler)
-	s.HandleFunc("/terminal", s.cliHandler)
+	s.HandleFunc("/services", s.registryHandler)
+	s.HandleFunc("/service/{name}", s.registryHandler)
 	s.HandleFunc("/rpc", handler.RPC)
 	s.HandleFunc("/favicon.ico", faviconHandler)
 	s.PathPrefix("/{service:[a-zA-Z0-9]+}").Handler(s.proxy())
@@ -470,7 +465,7 @@ func run(ctx *cli.Context, srvOpts ...micro.Option) {
 		opts = append(opts, server.ACMEHosts(hosts...))
 		switch ACMEProvider {
 		case "autocert":
-			opts = append(opts, server.ACMEProvider(autocert.New()))
+			opts = append(opts, server.ACMEProvider(autocert.NewProvider()))
 		case "certmagic":
 			if ACMEChallengeProvider != "cloudflare" {
 				log.Fatal("The only implemented DNS challenge provider is cloudflare")
@@ -503,7 +498,7 @@ func run(ctx *cli.Context, srvOpts ...micro.Option) {
 
 			opts = append(opts,
 				server.ACMEProvider(
-					certmagic.New(
+					certmagic.NewProvider(
 						acme.AcceptToS(true),
 						acme.CA(ACMECA),
 						acme.Cache(storage),

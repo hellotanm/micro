@@ -14,11 +14,21 @@ func Kubernetes() []string {
 // Platform is a platform profile
 func Platform() []string {
 	return []string{
+		// TODO: auth service, debug, monitor, etc
 		"MICRO_BROKER=service",
 		"MICRO_REGISTRY=service",
+		"MICRO_ROUTER=service",
+		"MICRO_RUNTIME=service",
 		"MICRO_STORE=service",
-		"MICRO_PROXY=go.micro.proxy",
-		// expects k8s service name
+		"MICRO_PROXY=service",
+		// now set the addresses
+		"MICRO_BROKER_ADDRESS=micro-store:8001",
+		"MICRO_REGISTRY_ADDRESS=micro-registry:8000",
 		"MICRO_PROXY_ADDRESS=micro-proxy:8081",
+		"MICRO_ROUTER_ADDRESS=micro-runtime:8084",
+		"MICRO_RUNTIME_ADDRESS=micro-runtime:8088",
+		"MICRO_STORE_ADDRESS=micro-store:8002",
+		// set the athens proxy to speedup builds
+		"GOPROXY=http://athens-proxy",
 	}
 }

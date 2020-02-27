@@ -15,17 +15,28 @@ import (
 	"github.com/micro/go-micro/v2"
 	"github.com/micro/go-micro/v2/config/cmd"
 	"github.com/micro/go-micro/v2/runtime"
-	rs "github.com/micro/go-micro/v2/runtime/service"
+	srvRuntime "github.com/micro/go-micro/v2/runtime/service"
 	"github.com/micro/micro/v2/runtime/scheduler"
 )
 
 const (
 	// RunUsage message for the run command
-	RunUsage = "Required usage: micro run github.com/my/service [--name service --version latest]"
+	RunUsage = "Required usage: micro run [service] [version] [--source github.com/micro/services]"
 	// KillUsage message for the kill command
 	KillUsage = "Require usage: micro kill [service] [version]"
-	// Getusage message for micro get command
+	// UpdateUsage message for the update command
+	UpdateUsage = "Require usage: micro update [service] [version]"
+	// GetUsage message for micro get command
 	GetUsage = "Require usage: micro ps [service] [version]"
+	// ServicesUsage message for micro services command
+	ServicesUsage = "Require usage: micro services"
+	// CannotWatch message for the run command
+	CannotWatch = "Cannot watch filesystem on this runtime"
+)
+
+var (
+	// DefaultRetries which should be attempted when starting a service
+	DefaultRetries = 3
 )
 
 func defaultEnv() []string {
@@ -39,18 +50,21 @@ func defaultEnv() []string {
 	return env
 }
 
+func runtimeFromContext(ctx *cli.Context) runtime.Runtime {
+	if ctx.Bool("platform") {
+		os.Setenv("MICRO_PROXY", "service")
+		os.Setenv("MICRO_PROXY_ADDRESS", "proxy.micro.mu:443")
+		return srvRuntime.NewRuntime()
+	}
+
+	return *cmd.DefaultCmd.Options().Runtime
+}
+
 func runService(ctx *cli.Context, srvOpts ...micro.Option) {
 	// Init plugins
 	for _, p := range Plugins() {
 		p.Init(ctx)
 	}
-
-	// get the args
-	name := ctx.String("name")
-	version := ctx.String("version")
-	source := ctx.String("source")
-	env := ctx.StringSlice("env")
-	local := ctx.Bool("local")
 
 	// we need some args to run
 	if ctx.Args().Len() == 0 {
@@ -58,79 +72,49 @@ func runService(ctx *cli.Context, srvOpts ...micro.Option) {
 		return
 	}
 
-	// "service" is a reserved keyword
-	// but otherwise assume anything else is source
-	if v := ctx.Args().Get(0); v != "service" {
-		source = v
+	// set and validate the name (arg 1)
+	name := ctx.Args().Get(0)
+	if strings.HasPrefix(name, ".") || strings.HasPrefix(name, "/") {
+		fmt.Println(RunUsage)
+		return
 	}
 
-	var r runtime.Runtime
-	var exec []string
-
-	// must specify service name
-	if len(name) == 0 {
-		if len(source) > 0 {
-			name = filepath.Base(source)
-		} else {
-			// set name
-			cwd, _ := os.Getwd()
-			name = filepath.Base(cwd)
-			// set local
-			local = true
-		}
+	// set the version (arg 2, optional)
+	version := "latest"
+	if ctx.Args().Len() > 1 {
+		version = ctx.Args().Get(1)
 	}
 
-	// local usage specified
-	switch local {
-	case true:
-		r = *cmd.DefaultCmd.Options().Runtime
-		// NOTE: When in local mode, we consider source to be
-		// the filesystem path to the source of the service
+	// load the runtime
+	r := runtimeFromContext(ctx)
+
+	source := ctx.String("source")
+	exec := []string{"go", "run", filepath.Join(source, name)}
+
+	// Determine the filepath
+	fp := filepath.Join(os.Getenv("GOPATH"), "src", source, name)
+
+	// Find the filepath or `go run` will pull from git by default
+	if r.String() == "local" && os.Chdir(fp) == nil {
 		exec = []string{"go", "run", "."}
 
-		if len(source) > 0 {
-			// dir doesn't exist so pull
-			if err := os.Chdir(source); err != nil {
-				exec[2] = source
-			}
-		}
-
-		// specify the runtime scheduler to update wiht local file changes
-		if err := r.Init(runtime.WithScheduler(scheduler.New(name, version, source))); err != nil {
+		// watch the filesystem for changes
+		sched := scheduler.New(name, version, fp)
+		if err := r.Init(runtime.WithScheduler(sched)); err != nil {
 			fmt.Printf("Could not start scheduler: %v", err)
 			return
 		}
-	default:
-		// new service runtime
-		r = rs.NewRuntime()
-		// NOTE: we consider source in default mode
-		// to be the canonical Go module import path
-		// if source is empty, we bail as this can
-		// lead to a potential K8s API object creation DDOS
-		if len(source) == 0 {
-			fmt.Println(RunUsage)
-			return
-		}
-		exec = []string{"go", "run", source}
 	}
 
-	// start the local runtime
+	// start the runtimes
 	if err := r.Start(); err != nil {
 		fmt.Printf("Could not start: %v", err)
 		return
 	}
 
-	service := &runtime.Service{
-		Name:     name,
-		Source:   source,
-		Version:  version,
-		Metadata: make(map[string]string),
-	}
-
-	// default environment
-	environment := defaultEnv()
 	// add environment variable passed in via cli
-	for _, evar := range env {
+	environment := defaultEnv()
+	for _, evar := range ctx.StringSlice("env") {
 		for _, e := range strings.Split(evar, ",") {
 			if len(e) > 0 {
 				environment = append(environment, strings.TrimSpace(e))
@@ -138,22 +122,33 @@ func runService(ctx *cli.Context, srvOpts ...micro.Option) {
 		}
 	}
 
-	// runtime based on environment we run the service in
-	// TODO: how will this work with runtime service
+	var retries = DefaultRetries
+	if ctx.IsSet("retries") {
+		retries = ctx.Int("retries")
+	}
+
+	// specify the options
 	opts := []runtime.CreateOption{
 		runtime.WithCommand(exec...),
 		runtime.WithOutput(os.Stdout),
 		runtime.WithEnv(environment),
+		runtime.WithRetries(retries),
 	}
 
 	// run the service
+	service := &runtime.Service{
+		Name:     name,
+		Source:   source,
+		Version:  version,
+		Metadata: make(map[string]string),
+	}
 	if err := r.Create(service, opts...); err != nil {
 		fmt.Println(err)
 		return
 	}
 
-	// if in local mode register signal handlers
-	if local {
+	// if local	 then register signal handlers
+	if r.String() == "local" {
 		shutdown := make(chan os.Signal, 1)
 		signal.Notify(shutdown, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
 
@@ -174,30 +169,23 @@ func runService(ctx *cli.Context, srvOpts ...micro.Option) {
 }
 
 func killService(ctx *cli.Context, srvOpts ...micro.Option) {
-	// get the args
-	name := ctx.String("name")
-	version := ctx.String("version")
-	local := ctx.Bool("local")
-
-	if ctx.Args().Len() > 0 {
-		// set name to first arg
-		name = ctx.Args().Get(0)
-		if ctx.Args().Len() > 1 {
-			version = ctx.Args().Get(1)
-		}
-	}
-
-	if len(name) == 0 {
-		fmt.Println(KillUsage)
+	// we need some args to run
+	if ctx.Args().Len() == 0 {
+		fmt.Println(RunUsage)
 		return
 	}
 
-	var r runtime.Runtime
-	switch local {
-	case true:
-		r = *cmd.DefaultCmd.Options().Runtime
-	default:
-		r = rs.NewRuntime()
+	// set and validate the name (arg 1)
+	name := ctx.Args().Get(0)
+	if strings.HasPrefix(name, ".") || strings.HasPrefix(name, "/") {
+		fmt.Println(RunUsage)
+		return
+	}
+
+	// set the version (arg 2, optional)
+	version := "latest"
+	if ctx.Args().Len() > 1 {
+		version = ctx.Args().Get(1)
 	}
 
 	service := &runtime.Service{
@@ -205,25 +193,56 @@ func killService(ctx *cli.Context, srvOpts ...micro.Option) {
 		Version: version,
 	}
 
-	if err := r.Delete(service); err != nil {
+	if err := runtimeFromContext(ctx).Delete(service); err != nil {
+		fmt.Println(err)
+		return
+	}
+}
+
+func updateService(ctx *cli.Context, srvOpts ...micro.Option) {
+	// we need some args to run
+	if ctx.Args().Len() == 0 {
+		fmt.Println(RunUsage)
+		return
+	}
+
+	// set and validate the name (arg 1)
+	name := ctx.Args().Get(0)
+	if strings.HasPrefix(name, ".") || strings.HasPrefix(name, "/") {
+		fmt.Println(RunUsage)
+		return
+	}
+
+	// set the version (arg 2, optional)
+	version := "latest"
+	if ctx.Args().Len() > 1 {
+		version = ctx.Args().Get(1)
+	}
+
+	service := &runtime.Service{
+		Name:    name,
+		Version: version,
+	}
+
+	if err := runtimeFromContext(ctx).Update(service); err != nil {
 		fmt.Println(err)
 		return
 	}
 }
 
 func getService(ctx *cli.Context, srvOpts ...micro.Option) {
-	// get the args
-	name := ctx.String("name")
-	version := ctx.String("version")
-	local := ctx.Bool("local")
 	runType := ctx.Bool("runtime")
 
-	var r runtime.Runtime
-	switch local {
-	case true:
-		r = *cmd.DefaultCmd.Options().Runtime
-	default:
-		r = rs.NewRuntime()
+	// get and validate the name (arg 1, optional)
+	name := ctx.Args().Get(0)
+	if strings.HasPrefix(name, ".") || strings.HasPrefix(name, "/") {
+		return
+	}
+
+	// get the version (arg 2, optional)
+	version := "latest"
+	if ctx.Args().Len() > 1 {
+		version = ctx.Args().Get(1)
 	}
 
 	var list bool
@@ -242,6 +261,8 @@ func getService(ctx *cli.Context, srvOpts ...micro.Option) {
 
 	var services []*runtime.Service
 	var err error
+
+	r := runtimeFromContext(ctx)
 
 	// return a list of services
 	switch list {
@@ -292,6 +313,7 @@ func getService(ctx *cli.Context, srvOpts ...micro.Option) {
 
 	// don't do anything if there's no services
 	if len(services) == 0 {
+		fmt.Println("No services found")
 		return
 	}
 

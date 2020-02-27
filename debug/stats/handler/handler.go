@@ -10,23 +10,18 @@ import (
 	"github.com/micro/go-micro/v2/config/cmd"
 	debug "github.com/micro/go-micro/v2/debug/service/proto"
 	"github.com/micro/go-micro/v2/errors"
+	log "github.com/micro/go-micro/v2/logger"
 	"github.com/micro/go-micro/v2/registry"
-	"github.com/micro/go-micro/v2/registry/cache"
-	"github.com/micro/go-micro/v2/util/log"
 	"github.com/micro/go-micro/v2/util/ring"
 	stats "github.com/micro/micro/v2/debug/stats/proto"
 )
 
 // New initialises and returns a new Stats service handler
-func New(done <-chan bool, windowSize int) (*Stats, error) {
+func New(done <-chan bool, windowSize int, services func() []*registry.Service) (*Stats, error) {
 	s := &Stats{
-		registry:            cache.New(*cmd.DefaultOptions().Registry),
-		client:              *cmd.DefaultOptions().Client,
-		historicalSnapshots: ring.New(windowSize),
-	}
-
-	if err := s.scan(); err != nil {
-		return nil, err
+		client:    *cmd.DefaultOptions().Client,
+		snapshots: ring.New(windowSize),
+		services:  services,
 	}
 
 	s.Start(done)
@@ -35,31 +30,34 @@ func New(done <-chan bool, windowSize int) (*Stats, error) {
 
 // Stats is the Debug.Stats handler
 type Stats struct {
-	registry registry.Registry
-	client   client.Client
+	client client.Client
 
 	sync.RWMutex
-	// current snapshots for each service
-	snapshots []*stats.Snapshot
 	// historical snapshots from the start
-	historicalSnapshots *ring.Buffer
-	cached              []*registry.Service
+	snapshots *ring.Buffer
+	// returns list of services
+	services func() []*registry.Service
 }
 
 // Read returns gets a snapshot of all current stats
 func (s *Stats) Read(ctx context.Context, req *stats.ReadRequest, rsp *stats.ReadResponse) error {
 	allSnapshots := []*stats.Snapshot{}
+
 	func() {
 		s.RLock()
 		defer s.RUnlock()
+
+		// get last snapshot
+		numEntries := 1
+
 		if req.Past {
-			entries := s.historicalSnapshots.Get(3600)
-			for _, entry := range entries {
-				allSnapshots = append(allSnapshots, entry.Value.([]*stats.Snapshot)...)
-			}
-		} else {
-			// Using an else since the latest snapshot is already in the ring buffer
-			allSnapshots = append(allSnapshots, s.snapshots...)
+			numEntries = -1
+		}
+
+		entries := s.snapshots.Get(numEntries)
+
+		for _, entry := range entries {
+			allSnapshots = append(allSnapshots, entry.Value.([]*stats.Snapshot)...)
 		}
 	}()
 	if req.Service == nil {
@@ -108,74 +106,16 @@ func (s *Stats) Start(done <-chan bool) {
 			}
 		}
 	}()
-
-	go func() {
-		t := time.NewTicker(10 * time.Second)
-		defer t.Stop()
-
-		for {
-			select {
-			case <-done:
-				return
-			case <-t.C:
-				if err := s.scan(); err != nil {
-					log.Debug(err)
-				}
-			}
-		}
-	}()
-}
-
-func (s *Stats) scan() error {
-	services, err := s.registry.ListServices()
-	if err != nil {
-		return err
-	}
-
-	if err != nil {
-		return err
-	}
-
-	serviceMap := make(map[string]*registry.Service)
-
-	// check each service has nodes
-	for _, service := range services {
-		if len(service.Nodes) > 0 {
-			serviceMap[service.Name+service.Version] = service
-			continue
-		}
-
-		// get nodes that does not exist
-		newServices, err := s.registry.GetService(service.Name)
-		if err != nil {
-			continue
-		}
-
-		// store service by version
-		for _, service := range newServices {
-			serviceMap[service.Name+service.Version] = service
-		}
-	}
-
-	// flatten the map
-	var serviceList []*registry.Service
-
-	for _, service := range serviceMap {
-		serviceList = append(serviceList, service)
-	}
-
-	// save the list
-	s.Lock()
-	s.cached = serviceList
-	s.Unlock()
-	return nil
 }
 
 func (s *Stats) scrape() {
+	// get services
+	cached := s.services()
+
 	s.RLock()
 	// Create a local copy of cached services
-	services := make([]*registry.Service, len(s.cached))
-	copy(services, s.cached)
+	services := make([]*registry.Service, len(cached))
+	copy(services, cached)
 	s.RUnlock()
 
 	// Start building the next list of snapshots
@@ -244,7 +184,6 @@ func (s *Stats) scrape() {
 
 	// Swap in the snapshots
 	s.Lock()
-	s.snapshots = next
-	s.historicalSnapshots.Put(next)
+	s.snapshots.Put(next)
 	s.Unlock()
 }

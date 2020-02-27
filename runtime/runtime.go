@@ -7,8 +7,9 @@ import (
 	"github.com/micro/cli/v2"
 	"github.com/micro/go-micro/v2"
 	"github.com/micro/go-micro/v2/config/cmd"
+	log "github.com/micro/go-micro/v2/logger"
+	"github.com/micro/go-micro/v2/runtime"
 	pb "github.com/micro/go-micro/v2/runtime/service/proto"
-	"github.com/micro/go-micro/v2/util/log"
 	"github.com/micro/micro/v2/runtime/handler"
 )
 
@@ -21,7 +22,7 @@ var (
 
 // Run the runtime service
 func Run(ctx *cli.Context, srvOpts ...micro.Option) {
-	log.Name("runtime")
+	log.Init(log.WithFields(map[string]interface{}{"service": "runtime"}))
 
 	// Init plugins
 	for _, p := range Plugins() {
@@ -42,6 +43,9 @@ func Run(ctx *cli.Context, srvOpts ...micro.Option) {
 
 	// create runtime
 	muRuntime := *cmd.DefaultCmd.Options().Runtime
+	if ctx.IsSet("source") {
+		muRuntime.Init(runtime.WithSource(ctx.String("source")))
+	}
 
 	// use default store
 	muStore := *cmd.DefaultCmd.Options().Store
@@ -49,11 +53,11 @@ func Run(ctx *cli.Context, srvOpts ...micro.Option) {
 	// create a new runtime manager
 	manager := newManager(ctx, muRuntime, muStore)
 
-	log.Logf("using store %s", muStore.String())
+	log.Infof("using store %s", muStore.String())
 
 	// start the manager
 	if err := manager.Start(); err != nil {
-		log.Logf("failed to start: %s", err)
+		log.Errorf("failed to start: %s", err)
 		os.Exit(1)
 	}
 
@@ -73,12 +77,12 @@ func Run(ctx *cli.Context, srvOpts ...micro.Option) {
 
 	// start runtime service
 	if err := service.Run(); err != nil {
-		log.Logf("error running service: %v", err)
+		log.Errorf("error running service: %v", err)
 	}
 
 	// stop the manager
 	if err := manager.Stop(); err != nil {
-		log.Logf("failed to stop: %s", err)
+		log.Errorf("failed to stop: %s", err)
 		os.Exit(1)
 	}
 }
@@ -87,21 +91,13 @@ func Run(ctx *cli.Context, srvOpts ...micro.Option) {
 func Flags() []cli.Flag {
 	return []cli.Flag{
 		&cli.StringFlag{
-			Name:  "name",
-			Usage: "Set the name of the service to run",
-		},
-		&cli.StringFlag{
-			Name:  "version",
-			Usage: "Set the version of the service to run",
-			Value: "latest",
-		},
-		&cli.StringFlag{
 			Name:  "source",
-			Usage: "Set the source url of the service e.g /path/to/source",
+			Usage: "Set the source url of the service e.g github.com/micro/services",
 		},
 		&cli.BoolFlag{
-			Name:  "local",
-			Usage: "Set to run the service from local path",
+			Name:  "platform",
+			Usage: "Connect to the platform",
+			Value: false,
 		},
 		&cli.StringSliceFlag{
 			Name:  "env",
@@ -130,6 +126,16 @@ func Commands(options ...micro.Option) []*cli.Command {
 					Usage:   "Set the runtime profile to use for services e.g local, kubernetes, platform",
 					EnvVars: []string{"MICRO_RUNTIME_PROFILE"},
 				},
+				&cli.StringFlag{
+					Name:    "source",
+					Usage:   "Set the runtime source, e.g. micro/services",
+					EnvVars: []string{"MICRO_RUNTIME_SOURCE"},
+				},
+				&cli.IntFlag{
+					Name:    "retries",
+					Usage:   "Set the max retries per service",
+					EnvVars: []string{"MICRO_RUNTIME_RETRIES"},
+				},
 			},
 			Action: func(ctx *cli.Context) error {
 				Run(ctx, options...)
@@ -152,6 +158,24 @@ func Commands(options ...micro.Option) []*cli.Command {
 			Flags: Flags(),
 			Action: func(ctx *cli.Context) error {
 				killService(ctx, options...)
+				return nil
+			},
+		},
+		{
+			Name:  "update",
+			Usage: UpdateUsage,
+			Flags: Flags(),
+			Action: func(ctx *cli.Context) error {
+				updateService(ctx, options...)
+				return nil
+			},
+		},
+		{
+			Name:  "services",
+			Usage: ServicesUsage,
+			Flags: Flags(),
+			Action: func(ctx *cli.Context) error {
+				getService(ctx, options...)
 				return nil
 			},
 		},
