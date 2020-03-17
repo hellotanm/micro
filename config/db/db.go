@@ -37,13 +37,20 @@ func Register(backend DB) {
 }
 
 func Init(opts ...Option) error {
-	options := Options{}
+	var options Options
+
 	for _, opt := range opts {
 		opt(&options)
 	}
 
-	db = dbMap[options.DBName]
-	log.Infof("Init config db: %s", options.DBName)
+	d, ok := dbMap[options.Database]
+	if !ok {
+		return errors.New(options.Database + " not registered")
+	}
+	db = d
+
+	// initialise db config
+	log.Infof("Init config options: %+v", options)
 
 	return db.Init(options)
 }

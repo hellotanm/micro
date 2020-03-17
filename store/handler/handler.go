@@ -70,7 +70,9 @@ func (s *Store) Read(ctx context.Context, req *pb.ReadRequest, rsp *pb.ReadRespo
 	}
 
 	vals, err := st.Read(req.Key, opts...)
-	if err != nil {
+	if err == store.ErrNotFound {
+		return errors.NotFound("go.micro.store", err.Error())
+	} else if err != nil {
 		return errors.InternalServerError("go.micro.store", err.Error())
 	}
 
@@ -114,7 +116,9 @@ func (s *Store) Delete(ctx context.Context, req *pb.DeleteRequest, rsp *pb.Delet
 	if err != nil {
 		return err
 	}
-	if err := st.Delete(req.Key); err != nil {
+	if err := st.Delete(req.Key); err == store.ErrNotFound {
+		return errors.NotFound("go.micro.store", err.Error())
+	} else if err != nil {
 		return errors.InternalServerError("go.micro.store", err.Error())
 	}
 	return nil
@@ -128,18 +132,16 @@ func (s *Store) List(ctx context.Context, req *pb.ListRequest, stream pb.Store_L
 	}
 
 	vals, err := st.List()
-	if err != nil {
+	if err == store.ErrNotFound {
+		return errors.NotFound("go.micro.store", err.Error())
+	} else if err != nil {
 		return errors.InternalServerError("go.micro.store", err.Error())
 	}
 	rsp := new(pb.ListResponse)
 
 	// TODO: batch sync
 	for _, val := range vals {
-		rsp.Records = append(rsp.Records, &pb.Record{
-			Key:    val.Key,
-			Value:  val.Value,
-			Expiry: int64(val.Expiry.Seconds()),
-		})
+		rsp.Keys = append(rsp.Keys, val)
 	}
 
 	err = stream.Send(rsp)

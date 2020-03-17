@@ -31,6 +31,7 @@ var (
 	// list of services managed
 	services = []string{
 		// runtime services
+		"config",   // ????
 		"network",  // :8085
 		"runtime",  // :8088
 		"registry", // :8000
@@ -235,7 +236,8 @@ func Run(context *cli.Context) error {
 
 		// runtime based on environment we run the service in
 		args := []gorun.CreateOption{
-			gorun.WithCommand(os.Args[0], service),
+			gorun.WithCommand(os.Args[0]),
+			gorun.WithArgs(service),
 			gorun.WithEnv(env),
 			gorun.WithOutput(os.Stdout),
 		}

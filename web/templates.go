@@ -24,6 +24,21 @@ var (
                         font-weight: 1000;
                         font-family: medium-content-sans-serif-font,"Lucida Grande","Lucida Sans Unicode","Lucida Sans",Geneva,Arial,sans-serif;
                   }
+		 .search {
+		    position: relative;
+		    max-width: 600px;
+		    margin: 0 auto;
+		    border-radius: 0;
+		    border: 0;
+		    box-shadow: none;
+		    border-bottom: 1px solid whitesmoke;
+		 }
+		 .search:focus {
+		    border-color: transparent;
+		    outline: 0;
+		    box-shadow: none;
+		    border-bottom: 1px solid whitesmoke;
+	 	 }
 		</style>
 		<style>
 		{{ template "style" . }}
@@ -46,6 +61,7 @@ var (
 	          <li><a href="/client">Client</a></li>
 	          <li><a href="/services">Services</a></li>
 	          {{if .StatsURL}}<li><a href="{{.StatsURL}}" class="navbar-link">Stats</a></li>{{end}}
+	          {{if .LoginURL}}<li><a href="{{.LoginURL}}" class="navbar-link">Login</a></li>{{end}}
 	        </ul>
               </div>
 	    </div>
@@ -79,7 +95,9 @@ var (
 	</body>
 </html>
 {{end}}
-{{ define "style" }}.search, .service { border-radius: 100px; }; {{end}}
+{{ define "style" }}
+.service { border-radius: 100px; }
+{{end}}
 {{ define "head" }}{{end}}
 {{ define "script" }}{{end}}
 {{ define "title" }}{{end}}
@@ -87,8 +105,20 @@ var (
 `
 
 	indexTemplate = `
-{{define "heading"}}<h4><input class="form-control input-lg search" type=text placeholder="Search"/></h4>{{end}}
+{{define "heading"}}<h4><input class="form-control input-lg search" type=text placeholder="Search" autofocus></h4>{{end}}
 {{define "style" }}
+.search {
+  border-radius: 0;
+  border: 0;
+  box-shadow: none;
+  border-bottom: 1px solid whitesmoke;
+}
+.search:focus {
+  border-color: transparent;
+  outline: 0;
+  box-shadow: none;
+  border-bottom: 1px solid whitesmoke;
+}
 .service {
 	margin: 5px 3px 5px 3px;
 	padding: 20px;
@@ -96,16 +126,26 @@ var (
 	display: block;
 }
 .search { border-radius: 100px; }
+.apps {
+  max-width: 600px;
+  text-align: center;
+  margin: 0 auto;
+}
+@media only screen and (max-width: 480px) {
+  .service {
+    padding: 10px;
+  }
+}
 {{end}}
 {{define "title"}}Web{{end}}
 {{define "content"}}
 	{{if .Results.HasWebServices}}
-		<div>
+		<div class="apps">
 			{{range .Results.WebServices}}
 			<div style="display: inline-block; max-width: 150px; vertical-align: top;">
 			<a href="/{{.Name}}/" data-filter={{.Name}} class="service">
 			  <div style="padding: 5px; max-width: 80px; display: block; margin: 0 auto;"><img src="{{.Icon}}" style="width: 100%; height: auto;"/></div>
-			  <div>{{.Name}}</div>
+			  <div>{{Title .Name}}</div>
 			</a>
 			</div>
 			{{end}}
@@ -167,6 +207,12 @@ jQuery(function($, undefined) {
 				<label for="otherendpoint">Other Endpoint</label>
 				<ul class="list-group">
 					<input class="form-control" type=text name=otherendpoint id=otherendpoint disabled placeholder="Endpoint"/>
+				</ul>
+			</div>
+			<div class="form-group">
+				<label for="auth-token">Auth Token</label>
+				<ul class="list-group">
+					<input class="form-control" type=text name=auth-token id=auth-token placeholder="Auth Token"/>
 				</ul>
 			</div>
 			<div class="form-group">
@@ -279,6 +325,12 @@ jQuery(function($, undefined) {
 			}
 			req.open("POST", "/rpc", true);
 			req.setRequestHeader("Content-type","application/json");				
+
+			var authToken = document.forms[0].elements["auth-token"].value;
+			if(authToken.length > 0) {
+				req.setRequestHeader("Authorization","Bearer " + authToken);
+			}
+
 			req.send(JSON.stringify(request));
 
 			return false;
@@ -287,15 +339,17 @@ jQuery(function($, undefined) {
 {{end}}
 `
 	registryTemplate = `
-{{define "heading"}}<h4><input class="form-control input-lg search" type=text placeholder="Search"/></h4>{{end}}
+{{define "heading"}}<h4><input class="form-control input-lg search" type=text placeholder="Search" autofocus></h4>{{end}}
 {{define "title"}}Services{{end}}
 {{define "content"}}
 	<p style="margin: 0;">&nbsp;</p>
+        <div style="max-width: 600px; margin: 0 auto;">
 	{{range .Results}}
 	<div style="margin: 5px 5px 5px 15px;">
 	    <a href="/service/{{.Name}}" data-filter={{.Name}} class="service">{{.Name}}</a>
 	</div>
 	{{end}}
+        </div>
 {{end}}
 {{define "script"}}
 <script type="text/javascript">
