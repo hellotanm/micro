@@ -291,6 +291,22 @@ func (r *registryRouter) Endpoint(req *http.Request) (*api.Service, error) {
 			continue
 		}
 
+		// services filter
+		if len(r.opts.Filters) > 0 {
+			ce := new(api.Service)
+
+			// copy service
+			*ce = *e
+
+			// apply the filters
+			for _, f := range r.opts.Filters {
+				filter := f(req)
+				ce.Services = filter(ce.Services)
+			}
+
+			return ce, nil
+		}
+
 		// TODO: Percentage traffic
 
 		// we got here, so its a match
@@ -329,6 +345,12 @@ func (r *registryRouter) Route(req *http.Request) (*api.Service, error) {
 	services, err := r.rc.GetService(name)
 	if err != nil {
 		return nil, err
+	}
+
+	// apply the filters
+	for _, f := range r.opts.Filters {
+		filter := f(req)
+		services = filter(services)
 	}
 
 	// only use endpoint matching when the meta handler is set aka api.Default
