@@ -31,6 +31,7 @@ import (
 	log "github.com/micro/go-micro/v2/logger"
 	"github.com/micro/go-micro/v2/sync/memory"
 	"github.com/micro/micro/v2/api/auth"
+	router2 "github.com/micro/micro/v2/gateway/router"
 	regRouter "github.com/micro/micro/v2/gateway/router/registry"
 	"github.com/micro/micro/v2/internal/handler"
 	"github.com/micro/micro/v2/internal/helper"
@@ -58,7 +59,7 @@ var (
 	ACMECA                = acme.LetsEncryptProductionCA
 )
 
-func run(ctx *cli.Context, regOpt regRouter.Option, srvOpts ...micro.Option) {
+func run(ctx *cli.Context, regOpt router2.Option, srvOpts ...micro.Option) {
 	log.Init(log.WithFields(map[string]interface{}{"service": "api"}))
 
 	if len(ctx.String("server_name")) > 0 {
@@ -234,7 +235,7 @@ func run(ctx *cli.Context, regOpt regRouter.Option, srvOpts ...micro.Option) {
 	case "rpc":
 		log.Infof("Registering API RPC Handler at %s", APIPath)
 		rt := regRouter.NewRouter(
-			regRouter.WithOption(regOpt),
+			router2.WithOption(regOpt),
 			router.WithHandler(arpc.Handler),
 			router.WithResolver(rr),
 			router.WithRegistry(service.Options().Registry),
@@ -248,7 +249,7 @@ func run(ctx *cli.Context, regOpt regRouter.Option, srvOpts ...micro.Option) {
 	case "api":
 		log.Infof("Registering API Request Handler at %s", APIPath)
 		rt := regRouter.NewRouter(
-			regRouter.WithOption(regOpt),
+			router2.WithOption(regOpt),
 			router.WithHandler(aapi.Handler),
 			router.WithResolver(rr),
 			router.WithRegistry(service.Options().Registry),
@@ -262,7 +263,7 @@ func run(ctx *cli.Context, regOpt regRouter.Option, srvOpts ...micro.Option) {
 	case "event":
 		log.Infof("Registering API Event Handler at %s", APIPath)
 		rt := regRouter.NewRouter(
-			regRouter.WithOption(regOpt),
+			router2.WithOption(regOpt),
 			router.WithHandler(event.Handler),
 			router.WithResolver(rr),
 			router.WithRegistry(service.Options().Registry),
@@ -276,7 +277,7 @@ func run(ctx *cli.Context, regOpt regRouter.Option, srvOpts ...micro.Option) {
 	case "http", "proxy":
 		log.Infof("Registering API HTTP Handler at %s", ProxyPath)
 		rt := regRouter.NewRouter(
-			regRouter.WithOption(regOpt),
+			router2.WithOption(regOpt),
 			router.WithHandler(ahttp.Handler),
 			router.WithResolver(rr),
 			router.WithRegistry(service.Options().Registry),
@@ -290,7 +291,7 @@ func run(ctx *cli.Context, regOpt regRouter.Option, srvOpts ...micro.Option) {
 	case "web":
 		log.Infof("Registering API Web Handler at %s", APIPath)
 		rt := regRouter.NewRouter(
-			regRouter.WithOption(regOpt),
+			router2.WithOption(regOpt),
 			router.WithHandler(web.Handler),
 			router.WithResolver(rr),
 			router.WithRegistry(service.Options().Registry),
@@ -304,7 +305,7 @@ func run(ctx *cli.Context, regOpt regRouter.Option, srvOpts ...micro.Option) {
 	default:
 		log.Infof("Registering API Default Handler at %s", APIPath)
 		rt := regRouter.NewRouter(
-			regRouter.WithOption(regOpt),
+			router2.WithOption(regOpt),
 			router.WithResolver(rr),
 			router.WithRegistry(service.Options().Registry),
 		)
@@ -340,7 +341,7 @@ func run(ctx *cli.Context, regOpt regRouter.Option, srvOpts ...micro.Option) {
 	}
 }
 
-func Commands(opt regRouter.Option, options ...micro.Option) []*cli.Command {
+func Commands(opt router2.Option, options ...micro.Option) []*cli.Command {
 	command := &cli.Command{
 		Name:  "gateway",
 		Usage: "Run the api gateway",

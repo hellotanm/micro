@@ -14,12 +14,13 @@ import (
 	"github.com/micro/go-micro/v2/logger"
 	"github.com/micro/go-micro/v2/registry"
 	"github.com/micro/go-micro/v2/registry/cache"
+	router2 "github.com/micro/micro/v2/gateway/router"
 )
 
 // router is the default router
 type registryRouter struct {
 	exit chan bool
-	opts Options
+	opts router2.Options
 
 	// registry cache
 	rc cache.Cache
@@ -392,8 +393,8 @@ func (r *registryRouter) Route(req *http.Request) (*api.Service, error) {
 	return nil, errors.New("unknown handler")
 }
 
-func newRouter(opt Option, opts ...router.Option) *registryRouter {
-	options := NewOptions(opt, WithRouterOption(opts...))
+func newRouter(opt router2.Option, opts ...router.Option) *registryRouter {
+	options := router2.NewOptions(opt, router2.WithRouterOption(opts...))
 	r := &registryRouter{
 		exit: make(chan bool),
 		opts: options,
@@ -406,6 +407,6 @@ func newRouter(opt Option, opts ...router.Option) *registryRouter {
 }
 
 // NewRouter returns the default router
-func NewRouter(opt Option, opts ...router.Option) router.Router {
+func NewRouter(opt router2.Option, opts ...router.Option) router.Router {
 	return newRouter(opt, opts...)
 }

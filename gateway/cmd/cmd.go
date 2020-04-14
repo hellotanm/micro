@@ -7,7 +7,7 @@ import (
 	"github.com/micro/go-micro/v2/config/cmd"
 	mcmd "github.com/micro/micro/v2/cmd"
 	api "github.com/micro/micro/v2/gateway"
-	"github.com/micro/micro/v2/gateway/router/registry"
+	"github.com/micro/micro/v2/gateway/router"
 )
 
 var (
@@ -39,7 +39,7 @@ func buildVersion() string {
 }
 
 // Init initialised the command line
-func Init(opt registry.Option, options ...micro.Option) {
+func Init(opt router.Option, options ...micro.Option) {
 	app := cmd.App()
 	app.Commands = append(app.Commands, api.Commands(opt, options...)...)
 
