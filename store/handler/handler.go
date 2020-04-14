@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"io"
+	"strings"
 	"sync"
 	"time"
 
@@ -16,8 +17,11 @@ type Store struct {
 	// The default store
 	Default store.Store
 
+	// The internal store where databases and table information is kept
+	Internal store.Store
+
 	// Store initialiser
-	New func(string, string) store.Store
+	New func(string, string) (store.Store, error)
 
 	// Store map
 	sync.RWMutex
@@ -34,25 +38,38 @@ func (s *Store) get(ctx context.Context) (store.Store, error) {
 		return s.Default, nil
 	}
 
-	namespace := md["Micro-Namespace"]
-	prefix := md["Micro-Prefix"]
+	database, _ := md.Get("Micro-Database")
+	table, _ := md.Get("Micro-Table")
 
-	if len(namespace) == 0 && len(prefix) == 0 {
+	if len(database) == 0 {
+		database = s.Default.Options().Database
+	}
+
+	if len(table) == 0 {
+		table = s.Default.Options().Table
+	}
+
+	// just use the default if nothing is specified
+	if len(database) == 0 && len(table) == 0 {
 		return s.Default, nil
 	}
 
-	str, ok := s.Stores[namespace+":"+prefix]
+	// attempt to get the database
+	str, ok := s.Stores[database+":"+table]
 	// got it
 	if ok {
 		return str, nil
 	}
 
 	// create a new store
-	// either namespace is not blank or prefix is not blank
-	st := s.New(namespace, prefix)
+	// either database is not blank or table is not blank
+	st, err := s.New(database, table)
+	if err != nil {
+		return nil, errors.InternalServerError("go.micro.store", "failed to setup store: %s", err.Error())
+	}
 
 	// save store
-	s.Stores[namespace+":"+prefix] = st
+	s.Stores[database+":"+table] = st
 
 	return st, nil
 }
@@ -70,7 +87,7 @@ func (s *Store) Read(ctx context.Context, req *pb.ReadRequest, rsp *pb.ReadRespo
 	}
 
 	vals, err := st.Read(req.Key, opts...)
-	if err == store.ErrNotFound {
+	if err != nil && err == store.ErrNotFound {
 		return errors.NotFound("go.micro.store", err.Error())
 	} else if err != nil {
 		return errors.InternalServerError("go.micro.store", err.Error())
@@ -103,7 +120,10 @@ func (s *Store) Write(ctx context.Context, req *pb.WriteRequest, rsp *pb.WriteRe
 		Expiry: time.Duration(req.Record.Expiry) * time.Second,
 	}
 
-	if err := st.Write(record); err != nil {
+	err = st.Write(record)
+	if err != nil && err == store.ErrNotFound {
+		return errors.NotFound("go.micro.store", err.Error())
+	} else if err != nil {
 		return errors.InternalServerError("go.micro.store", err.Error())
 	}
 
@@ -124,6 +144,30 @@ func (s *Store) Delete(ctx context.Context, req *pb.DeleteRequest, rsp *pb.Delet
 	return nil
 }
 
+func (s *Store) Databases(ctx context.Context, req *pb.DatabasesRequest, rsp *pb.DatabasesResponse) error {
+	recs, err := s.Internal.Read("databases/", store.ReadPrefix())
+	if err != nil {
+		return errors.InternalServerError("go.micro.store", err.Error())
+	}
+	rsp.Databases = make([]string, len(recs))
+	for i, r := range recs {
+		rsp.Databases[i] = strings.TrimPrefix(r.Key, "databases/")
+	}
+	return nil
+}
+
+func (s *Store) Tables(ctx context.Context, req *pb.TablesRequest, rsp *pb.TablesResponse) error {
+	recs, err := s.Internal.Read("tables/"+req.Database+"/", store.ReadPrefix())
+	if err != nil {
+		return errors.InternalServerError("go.micro.store", err.Error())
+	}
+	rsp.Tables = make([]string, len(recs))
+	for i, r := range recs {
+		rsp.Tables[i] = strings.TrimPrefix(r.Key, "tables/"+req.Database+"/")
+	}
+	return nil
+}
+
 func (s *Store) List(ctx context.Context, req *pb.ListRequest, stream pb.Store_ListStream) error {
 	// get new store
 	st, err := s.get(ctx)
@@ -132,11 +176,12 @@ func (s *Store) List(ctx context.Context, req *pb.ListRequest, stream pb.Store_L
 	}
 
 	vals, err := st.List()
-	if err == store.ErrNotFound {
+	if err != nil && err == store.ErrNotFound {
 		return errors.NotFound("go.micro.store", err.Error())
 	} else if err != nil {
 		return errors.InternalServerError("go.micro.store", err.Error())
 	}
+
 	rsp := new(pb.ListResponse)
 
 	// TODO: batch sync

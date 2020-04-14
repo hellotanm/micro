@@ -6,25 +6,27 @@ import (
 	"os"
 	"strings"
 
-	"github.com/chzyer/readline"
 	"github.com/micro/cli/v2"
+	storecli "github.com/micro/micro/v2/store/cli"
+
+	"github.com/chzyer/readline"
 )
 
 var (
 	prompt = "micro> "
 
 	commands = map[string]*command{
-		"quit":       &command{"quit", "Exit the CLI", quit},
-		"exit":       &command{"exit", "Exit the CLI", quit},
-		"call":       &command{"call", "Call a service", callService},
-		"list":       &command{"list", "List services, peers or routes", list},
-		"get":        &command{"get", "Get service info", getService},
-		"stream":     &command{"stream", "Stream a call to a service", streamService},
-		"publish":    &command{"publish", "Publish a message to a topic", publish},
-		"health":     &command{"health", "Get service health", queryHealth},
-		"stats":      &command{"stats", "Get service stats", queryStats},
-		"register":   &command{"register", "Register a service", registerService},
-		"deregister": &command{"deregister", "Deregister a service", deregisterService},
+		"quit":       {"quit", "Exit the CLI", quit},
+		"exit":       {"exit", "Exit the CLI", quit},
+		"call":       {"call", "Call a service", callService},
+		"list":       {"list", "List services, peers or routes", list},
+		"get":        {"get", "Get service info", getService},
+		"stream":     {"stream", "Stream a call to a service", streamService},
+		"publish":    {"publish", "Publish a message to a topic", publish},
+		"health":     {"health", "Get service health", queryHealth},
+		"stats":      {"stats", "Get service stats", queryStats},
+		"register":   {"register", "Register a service", registerService},
+		"deregister": {"deregister", "Deregister a service", deregisterService},
 	}
 )
 
@@ -91,6 +93,7 @@ func runc(c *cli.Context) error {
 	return nil
 }
 
+//NetworkCommands for network toplogy routing
 func NetworkCommands() []*cli.Command {
 	return []*cli.Command{
 		{
@@ -140,6 +143,11 @@ func NetworkCommands() []*cli.Command {
 				},
 			},
 		},
+		{
+			Name:   "services",
+			Usage:  "Get the network services",
+			Action: Print(networkServices),
+		},
 		// TODO: duplicates call. Move so we reuse same stuff.
 		{
 			Name:   "call",
@@ -166,6 +174,7 @@ func NetworkCommands() []*cli.Command {
 	}
 }
 
+//NetworkDNSCommands for networking routing
 func NetworkDNSCommands() []*cli.Command {
 	return []*cli.Command{
 		{
@@ -300,6 +309,178 @@ func RegistryCommands() []*cli.Command {
 	}
 }
 
+//StoreCommands for data storing
+func StoreCommands() []*cli.Command {
+	return []*cli.Command{
+		{
+			Name:   "snapshot",
+			Usage:  "Back up a store",
+			Action: storecli.Snapshot,
+			Flags: append(storecli.CommonFlags,
+				&cli.StringFlag{
+					Name:    "destination",
+					Usage:   "Backup destination",
+					Value:   "file:///tmp/store-snapshot",
+					EnvVars: []string{"MICRO_SNAPSHOT_DESTINATION"},
+				},
+			),
+		},
+		{
+			Name:   "sync",
+			Usage:  "Copy all records of one store into another store",
+			Action: storecli.Sync,
+			Flags:  storecli.SyncFlags,
+		},
+		{
+			Name:   "restore",
+			Usage:  "restore a store snapshot",
+			Action: storecli.Restore,
+			Flags: append(storecli.CommonFlags,
+				&cli.StringFlag{
+					Name:  "source",
+					Usage: "Backup source",
+					Value: "file:///tmp/store-snapshot",
+				},
+			),
+		},
+		{
+			Name:   "databases",
+			Usage:  "List all databases known to the store service",
+			Action: storecli.Databases,
+			Flags: []cli.Flag{
+				&cli.StringFlag{
+					Name:  "store",
+					Usage: "store service to call",
+					Value: "go.micro.store",
+				},
+			},
+		},
+		{
+			Name:   "tables",
+			Usage:  "List all tables in the specified database known to the store service",
+			Action: storecli.Tables,
+			Flags: []cli.Flag{
+				&cli.StringFlag{
+					Name:  "store",
+					Usage: "store service to call",
+					Value: "go.micro.store",
+				},
+				&cli.StringFlag{
+					Name:  "database",
+					Usage: "database to list tables of",
+					Value: "micro",
+				},
+			},
+		},
+		{
+			Name:      "read",
+			Usage:     "read a record from the store (MICRO_STORE)",
+			UsageText: `micro store read [options] key`,
+			Action:    storecli.Read,
+			Flags: []cli.Flag{
+				&cli.StringFlag{
+					Name:  "database",
+					Usage: "database to write to",
+					Value: "micro",
+				},
+				&cli.StringFlag{
+					Name:  "table",
+					Usage: "table to write to",
+					Value: "micro",
+				},
+				&cli.StringFlag{
+					Name:  "output",
+					Usage: "output format (json, table)",
+					Value: "table",
+				},
+				&cli.BoolFlag{
+					Name:  "prefix",
+					Usage: "read prefix",
+					Value: false,
+				},
+			},
+		},
+		{
+			Name:      "list",
+			Usage:     "list all keys from a store (MICRO_STORE)",
+			UsageText: `micro store list [options]`,
+			Action:    storecli.List,
+			Flags: []cli.Flag{
+				&cli.StringFlag{
+					Name:  "database",
+					Usage: "database to list from",
+					Value: "micro",
+				},
+				&cli.StringFlag{
+					Name:  "table",
+					Usage: "table to list from",
+					Value: "micro",
+				},
+				&cli.StringFlag{
+					Name:  "output",
+					Usage: "output format (json, table)",
+					Value: "table",
+				},
+				&cli.BoolFlag{
+					Name:  "prefix",
+					Usage: "list prefix",
+					Value: false,
+				},
+				&cli.UintFlag{
+					Name:  "limit",
+					Usage: "list limit",
+				},
+				&cli.UintFlag{
+					Name:  "offset",
+					Usage: "list offset",
+				},
+			},
+		},
+		{
+			Name:      "write",
+			Usage:     "write a record to the store (MICRO_STORE)",
+			UsageText: `micro store write [options] key value`,
+			Action:    storecli.Write,
+			Flags: []cli.Flag{
+				&cli.StringFlag{
+					Name:  "expiry",
+					Usage: "expiry in time.ParseDuration format",
+					Value: "",
+				},
+				&cli.StringFlag{
+					Name:  "database",
+					Usage: "database to write to",
+					Value: "micro",
+				},
+				&cli.StringFlag{
+					Name:  "table",
+					Usage: "table to write to",
+					Value: "micro",
+				},
+			},
+		},
+		{
+			Name:      "delete",
+			Usage:     "delete a key from the store (MICRO_STORE)",
+			UsageText: `micro store delete [options] key`,
+			Action:    storecli.Delete,
+			Flags: []cli.Flag{
+				&cli.StringFlag{
+					Name:  "database",
+					Usage: "database to delete from",
+					Value: "micro",
+				},
+				&cli.StringFlag{
+					Name:  "table",
+					Usage: "table to delete from",
+					Value: "micro",
+				},
+			},
+		},
+	}
+}
+
+//Commands for micro calling action
 func Commands() []*cli.Command {
 	commands := []*cli.Command{
 		{
@@ -338,6 +519,10 @@ func Commands() []*cli.Command {
 			Usage:  "Create a service stream",
 			Action: Print(streamService),
 			Flags: []cli.Flag{
+				&cli.BoolFlag{
+					Name:  "platform",
+					Usage: "Connect to the platform",
+				},
 				&cli.StringFlag{
 					Name:    "output, o",
 					Usage:   "Set the output format; json (default), raw",

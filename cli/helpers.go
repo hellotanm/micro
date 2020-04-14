@@ -60,6 +60,10 @@ func networkGraph(c *cli.Context, args []string) ([]byte, error) {
 	return clic.NetworkGraph(c)
 }
 
+func networkServices(c *cli.Context, args []string) ([]byte, error) {
+	return clic.NetworkServices(c)
+}
+
 func netNodes(c *cli.Context, args []string) ([]byte, error) {
 	return clic.NetworkNodes(c)
 }
@@ -112,6 +116,10 @@ func netCall(c *cli.Context, args []string) ([]byte, error) {
 
 // TODO: stream via HTTP
 func streamService(c *cli.Context, args []string) ([]byte, error) {
+	if c.Bool("platform") {
+		os.Setenv("MICRO_PROXY", "service")
+		os.Setenv("MICRO_PROXY_ADDRESS", "proxy.micro.mu:443")
+	}
 	if len(args) < 2 {
 		return nil, errors.New("require service and endpoint")
 	}

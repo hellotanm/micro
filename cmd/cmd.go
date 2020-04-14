@@ -14,7 +14,6 @@ import (
 	"github.com/micro/micro/v2/config"
 	"github.com/micro/micro/v2/debug"
 	"github.com/micro/micro/v2/health"
-	"github.com/micro/micro/v2/monitor"
 	"github.com/micro/micro/v2/network"
 	"github.com/micro/micro/v2/new"
 	"github.com/micro/micro/v2/plugin"
@@ -26,14 +25,15 @@ import (
 	"github.com/micro/micro/v2/server"
 	"github.com/micro/micro/v2/service"
 	"github.com/micro/micro/v2/store"
-	"github.com/micro/micro/v2/token"
 	"github.com/micro/micro/v2/tunnel"
 	"github.com/micro/micro/v2/web"
 
 	// include usage
-
 	"github.com/micro/micro/v2/internal/platform"
+	_ "github.com/micro/micro/v2/internal/plugins"
 	_ "github.com/micro/micro/v2/internal/usage"
+
+	gostore "github.com/micro/go-micro/v2/store"
 )
 
 var (
@@ -43,7 +43,7 @@ var (
 
 	name        = "micro"
 	description = "A microservice runtime"
-	version     = "2.2.0"
+	version     = "latest"
 )
 
 func init() {
@@ -59,10 +59,6 @@ func setup(app *ccli.App) {
 		&ccli.BoolFlag{
 			Name:  "local",
 			Usage: "Enable local only development: Defaults to true.",
-		},
-		&ccli.BoolFlag{
-			Name:  "peer",
-			Usage: "Peer with the global network to share services",
 		},
 		&ccli.BoolFlag{
 			Name:    "enable_acme",
@@ -103,6 +99,12 @@ func setup(app *ccli.App) {
 			Name:    "api_address",
 			Usage:   "Set the api address e.g 0.0.0.0:8080",
 			EnvVars: []string{"MICRO_API_ADDRESS"},
+		},
+		&ccli.StringFlag{
+			Name:    "namespace",
+			Usage:   "Set the micro service namespace",
+			EnvVars: []string{"MICRO_NAMESPACE"},
+			Value:   "micro",
 		},
 		&ccli.StringFlag{
 			Name:    "proxy_address",
@@ -175,12 +177,6 @@ func setup(app *ccli.App) {
 			EnvVars: []string{"MICRO_REPORT_USAGE"},
 			Value:   true,
 		},
-		&ccli.StringFlag{
-			Name:    "namespace",
-			Usage:   "Set the micro service namespace",
-			EnvVars: []string{"MICRO_NAMESPACE"},
-			Value:   "go.micro",
-		},
 	)
 
 	plugins := plugin.Plugins()
@@ -211,7 +207,7 @@ func setup(app *ccli.App) {
 			web.Address = ctx.String("web_address")
 		}
 		if len(ctx.String("network_address")) > 0 {
-			server.Network = ctx.String("network_address")
+			network.Address = ctx.String("network_address")
 		}
 		if len(ctx.String("router_address")) > 0 {
 			router.Address = ctx.String("router_address")
@@ -236,7 +232,37 @@ func setup(app *ccli.App) {
 		}
 
 		// now do previous before
-		return before(ctx)
+		if err := before(ctx); err != nil {
+			return err
+		}
+
+		var opts []gostore.Option
+
+		// the database is not overriden by flag then set it
+		if len(ctx.String("store_database")) == 0 {
+			opts = append(opts, gostore.Database(cmd.App().Name))
+		}
+
+		// if the table is not overriden by flag then set it
+		if len(ctx.String("store_table")) == 0 {
+			table := cmd.App().Name
+
+			// if an arg is specified use that as the name
+			// so each service has its own table preconfigured
+			if name := ctx.Args().First(); len(name) > 0 {
+				table = name
+			}
+
+			opts = append(opts, gostore.Table(table))
+		}
+
+		// TODO: move this entire initialisation elsewhere
+		// maybe in service.Run so all things are configured
+		if len(opts) > 0 {
+			(*cmd.DefaultCmd.Options().Store).Init(opts...)
+		}
+
+		return nil
 	}
 }
 
@@ -279,7 +305,6 @@ func Setup(app *ccli.App, options ...micro.Option) {
 	app.Commands = append(app.Commands, broker.Commands(options...)...)
 	app.Commands = append(app.Commands, health.Commands(options...)...)
 	app.Commands = append(app.Commands, proxy.Commands(options...)...)
-	app.Commands = append(app.Commands, monitor.Commands(options...)...)
 	app.Commands = append(app.Commands, router.Commands(options...)...)
 	app.Commands = append(app.Commands, tunnel.Commands(options...)...)
 	app.Commands = append(app.Commands, network.Commands(options...)...)
@@ -289,7 +314,6 @@ func Setup(app *ccli.App, options ...micro.Option) {
 	app.Commands = append(app.Commands, server.Commands(options...)...)
 	app.Commands = append(app.Commands, service.Commands(options...)...)
 	app.Commands = append(app.Commands, store.Commands(options...)...)
-	app.Commands = append(app.Commands, token.Commands()...)
 	app.Commands = append(app.Commands, new.Commands()...)
 	app.Commands = append(app.Commands, build.Commands()...)
 	app.Commands = append(app.Commands, web.Commands(options...)...)
@@ -307,7 +331,7 @@ func Setup(app *ccli.App, options ...micro.Option) {
 	})
 
 	// boot micro runtime
-	app.Action = platform.Run
+	app.Action = func(c *ccli.Context) error { return ccli.ShowAppHelp(c) }
 
 	setup(app)
 }

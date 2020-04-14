@@ -2,7 +2,6 @@
 package web
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -10,7 +9,6 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"os"
-	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -20,6 +18,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/micro/cli/v2"
 	"github.com/micro/go-micro/v2"
+	res "github.com/micro/go-micro/v2/api/resolver"
 	"github.com/micro/go-micro/v2/api/server"
 	"github.com/micro/go-micro/v2/api/server/acme"
 	"github.com/micro/go-micro/v2/api/server/acme/autocert"
@@ -32,18 +31,21 @@ import (
 	log "github.com/micro/go-micro/v2/logger"
 	"github.com/micro/go-micro/v2/registry"
 	"github.com/micro/go-micro/v2/registry/cache"
-	cfstore "github.com/micro/go-micro/v2/store/cloudflare"
-	"github.com/micro/go-micro/v2/sync/lock/memory"
+	"github.com/micro/go-micro/v2/sync/memory"
+	apiAuth "github.com/micro/micro/v2/api/auth"
 	"github.com/micro/micro/v2/internal/handler"
 	"github.com/micro/micro/v2/internal/helper"
+	"github.com/micro/micro/v2/internal/namespace"
+	cfstore "github.com/micro/micro/v2/internal/plugins/store/cloudflare"
+	"github.com/micro/micro/v2/internal/resolver/web"
 	"github.com/micro/micro/v2/internal/stats"
 	"github.com/micro/micro/v2/plugin"
 	"github.com/serenize/snaker"
 	"golang.org/x/net/publicsuffix"
 )
 
+//Meta Fields of micro web
 var (
-	re = regexp.MustCompile("^[a-zA-Z0-9]+([a-zA-Z0-9-]*[a-zA-Z0-9]*)?$")
 	// Default server name
 	Name = "go.micro.web"
 	// Default address to bind to
@@ -52,7 +54,9 @@ var (
 	// Example:
 	// Namespace + /[Service]/foo/bar
 	// Host: Namespace.Service Endpoint: /foo/bar
-	Namespace = "go.micro.web"
+	Namespace = "go.micro"
+	Type      = "web"
+	Resolver  = "path"
 	// Base path sent to web service.
 	// This is stripped from the request path
 	// Allows the web service to define absolute paths
@@ -63,9 +67,6 @@ var (
 	ACMEChallengeProvider = "cloudflare"
 	ACMECA                = acme.LetsEncryptProductionCA
 
-	// A placeholder icon
-	DefaultIcon = "https://micro.mu/circle.png"
-
 	// Host name the web dashboard is served on
 	Host, _ = os.Hostname()
 )
@@ -75,20 +76,37 @@ type srv struct {
 	// registry we use
 	registry registry.Registry
 	// the resolver
-	resolver *resolver
+	resolver *web.Resolver
+	// the namespace resolver
+	nsResolver *namespace.Resolver
 	// the proxy server
 	prx *proxy
+	// auth service
+	auth auth.Auth
 }
 
 type reg struct {
 	registry.Registry
 
-	sync.Mutex
+	sync.RWMutex
 	lastPull time.Time
 	services []*registry.Service
 }
 
 func (r *reg) watch() {
+	// update once
+	r.update()
+
+	// periodically update the service cache
+	go func() {
+		t := time.NewTicker(time.Minute)
+		defer t.Stop()
+
+		for range t.C {
+			r.update()
+		}
+	}()
+
 Loop:
 	for {
 		// get a watcher
@@ -115,35 +133,34 @@ Loop:
 	}
 }
 
-func (r *reg) ListServices() ([]*registry.Service, error) {
+func (r *reg) update() {
+	// pull the services
+	s, err := r.Registry.ListServices()
+	if err != nil {
+		return
+	}
+
+	// collapse the list
+	serviceMap := make(map[string]*registry.Service)
+	for _, service := range s {
+		serviceMap[service.Name] = service
+	}
+	var services []*registry.Service
+	for _, service := range serviceMap {
+		services = append(services, service)
+	}
+
 	r.Lock()
 	defer r.Unlock()
 
-	if r.lastPull.IsZero() || time.Since(r.lastPull) > time.Minute {
-		// pull the services
-		s, err := r.Registry.ListServices()
-		if err != nil {
-			// return stale entries if they exist
-			if len(r.services) > 0 {
-				return r.services, nil
-			}
-			// otherwise return an error
-			return nil, err
-		}
-		// collapse the list
-		serviceMap := make(map[string]*registry.Service)
-		for _, service := range s {
-			serviceMap[service.Name] = service
-		}
-		var services []*registry.Service
-		for _, service := range serviceMap {
-			services = append(services, service)
-		}
-		// cache it
-		r.services = services
-		r.lastPull = time.Now()
-		return s, nil
-	}
+	// cache it
+	r.services = services
+	r.lastPull = time.Now()
+}
+
+func (r *reg) ListServices() ([]*registry.Service, error) {
+	r.RLock()
+	defer r.RUnlock()
 
 	// return the cached list
 	return r.services, nil
@@ -161,6 +178,16 @@ func (s *srv) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// no host means dashboard
 	host := r.URL.Hostname()
+	if len(host) == 0 {
+		h, _, err := net.SplitHostPort(r.Host)
+		if err != nil && strings.Contains(err.Error(), "missing port in address") {
+			host = r.Host
+		} else if err == nil {
+			host = h
+		}
+	}
+
+	// check again
 	if len(host) == 0 {
 		s.Router.ServeHTTP(w, r)
 		return
@@ -190,7 +217,7 @@ func (s *srv) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// web dashboard if namespace matches
-	if namespace == Namespace {
+	if namespace == Namespace+"."+Type {
 		s.Router.ServeHTTP(w, r)
 		return
 	}
@@ -202,17 +229,14 @@ func (s *srv) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// now try resolve
-	if err := s.resolver.Resolve(r); err != nil {
+	// check if its a web request
+	if _, _, isWeb := s.resolver.Info(r); isWeb {
 		s.Router.ServeHTTP(w, r)
 		return
 	}
 
-	// mark as resolved
-	ctx := context.WithValue(r.Context(), "resolved", true)
-
 	// otherwise serve the proxy
-	s.prx.ServeHTTP(w, r.WithContext(ctx))
+	s.prx.ServeHTTP(w, r)
 }
 
 // proxy is a http reverse proxy
@@ -226,18 +250,28 @@ func (s *srv) proxy() *proxy {
 			r.RequestURI = ""
 		}
 
-		// check if we're already resolved
-		v, ok := r.Context().Value("resolved").(bool)
-		if ok && v == true {
-			return
+		// check to see if the endpoint was encoded in the request context
+		// by the auth wrapper
+		var endpoint *res.Endpoint
+		if val, ok := (r.Context().Value(res.Endpoint{})).(*res.Endpoint); ok {
+			endpoint = val
 		}
 
 		// TODO: better error handling
-		if err := s.resolver.Resolve(r); err != nil {
-			fmt.Printf("Failed to resolve url: %v: %v\n", r.URL, err)
-			kill()
-			return
+		var err error
+		if endpoint == nil {
+			if endpoint, err = s.resolver.Resolve(r); err != nil {
+				fmt.Printf("Failed to resolve url: %v: %v\n", r.URL, err)
+				kill()
+				return
+			}
 		}
+
+		r.Header.Set(BasePathHeader, "/"+endpoint.Name)
+		r.URL.Host = endpoint.Host
+		r.URL.Path = endpoint.Path
+		r.URL.Scheme = "http"
+		r.Host = r.URL.Host
 	}
 
 	return &proxy{
@@ -309,32 +343,16 @@ func (s *srv) indexHandler(w http.ResponseWriter, r *http.Request) {
 		Icon string
 	}
 
+	// TODO: lookup icon
+
+	// determine the namespace using the request
+	namespace := s.nsResolver.Resolve(r)
+
 	var webServices []webService
 	for _, srv := range services {
-		if len(srv.Nodes) == 0 {
-			srvs, _ := s.registry.GetService(srv.Name)
-			if len(srvs) == 0 {
-				continue
-			}
-			srv = srvs[0]
-		}
-
-		if len(srv.Nodes) == 0 {
-			continue
-		}
-
-		if strings.Index(srv.Name, Namespace) == 0 && len(strings.TrimPrefix(srv.Name, Namespace)) > 0 {
-			icon := DefaultIcon
-
-			if ico := srv.Nodes[0].Metadata["icon"]; len(ico) > 0 {
-				icon = ico
-			}
-
-			name := strings.Replace(srv.Name, Namespace+".", "", 1)
-
+		if strings.Index(srv.Name, namespace) == 0 && len(strings.TrimPrefix(srv.Name, namespace)) > 0 {
 			webServices = append(webServices, webService{
-				Name: name,
-				Icon: icon,
+				Name: strings.Replace(srv.Name, namespace+".", "", 1),
 			})
 		}
 	}
@@ -347,7 +365,7 @@ func (s *srv) indexHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := templateData{len(webServices) > 0, webServices}
-	render(w, r, indexTemplate, data)
+	s.render(w, r, indexTemplate, data)
 }
 
 func (s *srv) registryHandler(w http.ResponseWriter, r *http.Request) {
@@ -355,13 +373,13 @@ func (s *srv) registryHandler(w http.ResponseWriter, r *http.Request) {
 	svc := vars["name"]
 
 	if len(svc) > 0 {
-		s, err := s.registry.GetService(svc)
+		sv, err := s.registry.GetService(svc)
 		if err != nil {
 			http.Error(w, "Error occurred:"+err.Error(), 500)
 			return
 		}
 
-		if len(s) == 0 {
+		if len(sv) == 0 {
 			http.Error(w, "Not found", 404)
 			return
 		}
@@ -379,7 +397,7 @@ func (s *srv) registryHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		render(w, r, serviceTemplate, s)
+		s.render(w, r, serviceTemplate, sv)
 		return
 	}
 
@@ -403,7 +421,7 @@ func (s *srv) registryHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	render(w, r, registryTemplate, services)
+	s.render(w, r, registryTemplate, services)
 }
 
 func (s *srv) callHandler(w http.ResponseWriter, r *http.Request) {
@@ -444,13 +462,19 @@ func (s *srv) callHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	render(w, r, callTemplate, serviceMap)
+	s.render(w, r, callTemplate, serviceMap)
 }
 
-func render(w http.ResponseWriter, r *http.Request, tmpl string, data interface{}) {
+func (s *srv) render(w http.ResponseWriter, r *http.Request, tmpl string, data interface{}) {
 	t, err := template.New("template").Funcs(template.FuncMap{
 		"format": format,
 		"Title":  strings.Title,
+		"First": func(s string) string {
+			if len(s) == 0 {
+				return s
+			}
+			return strings.Title(string(s[0]))
+		},
 	}).Parse(layoutTemplate)
 	if err != nil {
 		http.Error(w, "Error occurred:"+err.Error(), 500)
@@ -462,10 +486,24 @@ func render(w http.ResponseWriter, r *http.Request, tmpl string, data interface{
 		return
 	}
 
+	// If the user is logged in, render Account instead of Login
+	loginTitle := "Login"
+	user := ""
+
+	if c, err := r.Cookie(auth.TokenCookieName); err == nil && c != nil {
+		token := strings.TrimPrefix(c.Value, auth.TokenCookieName+"=")
+		if acc, err := s.auth.Inspect(token); err == nil {
+			loginTitle = "Account"
+			user = acc.ID
+		}
+	}
+
 	if err := t.ExecuteTemplate(w, "layout", map[string]interface{}{
-		"LoginURL": loginURL,
-		"StatsURL": statsURL,
-		"Results":  data,
+		"LoginTitle": loginTitle,
+		"LoginURL":   loginURL,
+		"StatsURL":   statsURL,
+		"Results":    data,
+		"User":       user,
 	}); err != nil {
 		http.Error(w, "Error occurred:"+err.Error(), 500)
 	}
@@ -480,8 +518,16 @@ func run(ctx *cli.Context, srvOpts ...micro.Option) {
 	if len(ctx.String("address")) > 0 {
 		Address = ctx.String("address")
 	}
+	if len(ctx.String("resolver")) > 0 {
+		Resolver = ctx.String("resolver")
+	}
+	if len(ctx.String("type")) > 0 {
+		Type = ctx.String("type")
+	}
 	if len(ctx.String("namespace")) > 0 {
-		Namespace = ctx.String("namespace")
+		// remove the service type from the namespace to allow for
+		// backwards compatability
+		Namespace = strings.TrimSuffix(ctx.String("namespace"), "."+Type)
 	}
 
 	// Init plugins
@@ -500,12 +546,15 @@ func run(ctx *cli.Context, srvOpts ...micro.Option) {
 		Router:   mux.NewRouter(),
 		registry: reg,
 		// our internal resolver
-		resolver: &resolver{
-			Namespace: Namespace,
+		resolver: &web.Resolver{
+			// Default to type path
+			Type:      Resolver,
+			Namespace: namespace.NewResolver(Type, Namespace).Resolve,
 			Selector: selector.NewSelector(
 				selector.Registry(reg),
 			),
 		},
+		auth: *cmd.DefaultOptions().Auth,
 	}
 
 	var h http.Handler
@@ -568,7 +617,7 @@ func run(ctx *cli.Context, srvOpts ...micro.Option) {
 				cfstore.CacheTTL(time.Minute),
 			)
 			storage := certmagic.NewStorage(
-				memory.NewLock(),
+				memory.NewSync(),
 				cloudflareStore,
 			)
 			config := cloudflare.NewDefaultConfig()
@@ -610,7 +659,13 @@ func run(ctx *cli.Context, srvOpts ...micro.Option) {
 		h = plugins[i-1].Handler()(h)
 	}
 
-	srv := httpapi.NewServer(Address)
+	// create the namespace resolver and the auth wrapper
+	s.nsResolver = namespace.NewResolver(Type, Namespace)
+	authWrapper := apiAuth.Wrapper(s.resolver, s.nsResolver)
+
+	// create the service and add the auth wrapper
+	srv := httpapi.NewServer(Address, server.WrapHandler(authWrapper))
+
 	srv.Init(opts...)
 	srv.Handle("/", h)
 
@@ -623,7 +678,7 @@ func run(ctx *cli.Context, srvOpts ...micro.Option) {
 		srvOpts = append(srvOpts, micro.RegisterInterval(i*time.Second))
 	}
 
-	// Initialise Server
+	// Initialize Server
 	service := micro.NewService(srvOpts...)
 
 	// Setup auth redirect
@@ -646,6 +701,7 @@ func run(ctx *cli.Context, srvOpts ...micro.Option) {
 	}
 }
 
+//Commands for `micro web`
 func Commands(options ...micro.Option) []*cli.Command {
 	command := &cli.Command{
 		Name:  "web",
@@ -666,6 +722,11 @@ func Commands(options ...micro.Option) []*cli.Command {
 				EnvVars: []string{"MICRO_WEB_NAMESPACE"},
 			},
 			&cli.StringFlag{
+				Name:    "resolver",
+				Usage:   "Set the resolver to route to services e.g path, domain",
+				EnvVars: []string{"MICRO_WEB_RESOLVER"},
+			},
+			&cli.StringFlag{
 				Name:    "auth_login_url",
 				EnvVars: []string{"MICRO_AUTH_LOGIN_URL"},
 				Usage:   "The relative URL where a user can login",
@@ -684,4 +745,10 @@ func Commands(options ...micro.Option) []*cli.Command {
 	}
 
 	return []*cli.Command{command}
+}
+
+func reverse(s []string) {
+	for i, j := 0, len(s)-1; i < j; i, j = i+1, j-1 {
+		s[i], s[j] = s[j], s[i]
+	}
 }

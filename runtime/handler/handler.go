@@ -116,15 +116,39 @@ func (r *Runtime) Delete(ctx context.Context, req *pb.DeleteRequest, rsp *pb.Del
 	return nil
 }
 
-func (r *Runtime) List(ctx context.Context, req *pb.ListRequest, rsp *pb.ListResponse) error {
-	services, err := r.Runtime.List()
+func (r *Runtime) Logs(ctx context.Context, req *pb.LogsRequest, stream pb.Runtime_LogsStream) error {
+	opts := []runtime.LogsOption{}
+	if req.GetCount() > 0 {
+		opts = append(opts, runtime.LogsCount(req.GetCount()))
+	}
+	if req.GetStream() {
+		opts = append(opts, runtime.LogsStream(req.GetStream()))
+	}
+	logStream, err := r.Runtime.Logs(&runtime.Service{
+		Name: req.GetService(),
+	}, opts...)
 	if err != nil {
-		return errors.InternalServerError("go.micro.runtime", err.Error())
+		return err
 	}
+	defer logStream.Stop()
+	defer stream.Close()
 
-	for _, service := range services {
-		rsp.Services = append(rsp.Services, toProto(service))
+	recordChan := logStream.Chan()
+	for {
+		select {
+		case record, ok := <-recordChan:
+			if !ok {
+				return logStream.Error()
+			}
+			// send record
+			if err := stream.Send(&pb.LogRecord{
+				//Timestamp: record.Timestamp.Unix(),
+				Message: record.Message,
+			}); err != nil {
+				return err
+			}
+		case <-ctx.Done():
+			return nil
+		}
 	}
-
-	return nil
 }

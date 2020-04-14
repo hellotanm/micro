@@ -4,9 +4,12 @@ package runtime
 import (
 	"fmt"
 	"os"
+	"os/signal"
+	"path/filepath"
 	"sort"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/micro/cli/v2"
 	"github.com/micro/go-micro/v2"
@@ -35,9 +38,28 @@ var (
 	DefaultRetries = 3
 	// Image to specify if none is specified
 	Image = "docker.pkg.github.com/micro/services"
+	// Source where we get services from
+	Source = "github.com/micro/services"
 )
 
+// timeAgo returns the time passed
+func timeAgo(v string) string {
+	if len(v) == 0 {
+		return "unknown"
+	}
+	t, err := time.Parse(time.RFC3339, v)
+	if err != nil {
+		return v
+	}
+	return fmt.Sprintf("%v ago", time.Since(t).Truncate(time.Second))
+}
+
 func runtimeFromContext(ctx *cli.Context) runtime.Runtime {
+	if ctx.Bool("server") {
+		os.Setenv("MICRO_PROXY", "service")
+		os.Setenv("MICRO_PROXY_ADDRESS", "127.0.0.1:8081")
+		return srvRuntime.NewRuntime()
+	}
 	if ctx.Bool("platform") {
 		os.Setenv("MICRO_PROXY", "service")
 		os.Setenv("MICRO_PROXY_ADDRESS", "proxy.micro.mu:443")
@@ -63,6 +85,20 @@ func runService(ctx *cli.Context, srvOpts ...micro.Option) {
 	name := ctx.Args().Get(0)
 	version := "latest"
 	source := ctx.String("source")
+	// Set source here correctly per flag/environment to avoid
+	// issues down the line
+	if len(source) == 0 && !ctx.Bool("platform") {
+		// in the case of `micro run --server folder/folder1`,
+		// or `micro run folder/folder1`
+		// set the local absolute path to the package
+		path, err := os.Getwd()
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+		source = filepath.Join(path, ctx.Args().Get(0))
+
+	}
 	typ := ctx.String("type")
 	image := ctx.String("image")
 	command := strings.TrimSpace(ctx.String("command"))
@@ -70,11 +106,6 @@ func runService(ctx *cli.Context, srvOpts ...micro.Option) {
 
 	// load the runtime
 	r := runtimeFromContext(ctx)
-
-	if strings.HasPrefix(name, ".") || strings.HasPrefix(name, "/") {
-		fmt.Println(RunUsage)
-		return
-	}
 
 	// set the version (arg 2, optional)
 	if ctx.Args().Len() > 1 {
@@ -98,8 +129,18 @@ func runService(ctx *cli.Context, srvOpts ...micro.Option) {
 
 	// set the image from our images if its the platform
 	if ctx.Bool("platform") && len(image) == 0 {
+		if strings.HasPrefix(name, ".") || strings.HasPrefix(name, "/") {
+			fmt.Println(RunUsage)
+			return
+		}
+
 		formattedName := strings.ReplaceAll(name, "/", "-")
 		image = fmt.Sprintf("%v/%v", Image, formattedName)
+	}
+
+	// check the source is set
+	if ctx.Bool("platform") && len(source) == 0 {
+		source = Source
 	}
 
 	// specify the options
@@ -122,6 +163,20 @@ func runService(ctx *cli.Context, srvOpts ...micro.Option) {
 		opts = append(opts, runtime.WithArgs(strings.Split(args, " ")...))
 	}
 
+	// don't pass through dotted names unless
+	if strings.HasPrefix(name, ".") || strings.HasPrefix(name, "/") {
+		if r.String() != "local" {
+			fmt.Println(RunUsage)
+			return
+		}
+		path, err := os.Getwd()
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+		name = filepath.Base(path)
+	}
+
 	// run the service
 	service := &runtime.Service{
 		Name:     name,
@@ -133,6 +188,15 @@ func runService(ctx *cli.Context, srvOpts ...micro.Option) {
 	if err := r.Create(service, opts...); err != nil {
 		fmt.Println(err)
 		return
+	}
+
+	if r.String() == "local" {
+		// we need to wait
+		ch := make(chan os.Signal, 1)
+		signal.Notify(ch, os.Interrupt)
+		<-ch
+		// delete the service
+		r.Delete(service)
 	}
 }
 
@@ -201,7 +265,6 @@ func updateService(ctx *cli.Context, srvOpts ...micro.Option) {
 func getService(ctx *cli.Context, srvOpts ...micro.Option) {
 	name := ctx.Args().Get(0)
 	version := "latest"
-	runType := ctx.Bool("runtime")
 	typ := ctx.String("type")
 	r := runtimeFromContext(ctx)
 
@@ -225,16 +288,14 @@ func getService(ctx *cli.Context, srvOpts ...micro.Option) {
 
 	var err error
 	var services []*runtime.Service
+	var readOpts []runtime.ReadOption
 
 	// return a list of services
 	switch list {
 	case true:
-		// return the runtiem services
-		if runType {
-			services, err = r.Read(runtime.ReadType("runtime"))
-		} else {
-			// list all running services
-			services, err = r.List()
+		// return specific type listing
+		if len(typ) > 0 {
+			readOpts = append(readOpts, runtime.ReadType(typ))
 		}
 	// return one service
 	default:
@@ -245,23 +306,20 @@ func getService(ctx *cli.Context, srvOpts ...micro.Option) {
 		}
 
 		// get service with name and version
-		opts := []runtime.ReadOption{
+		readOpts = []runtime.ReadOption{
 			runtime.ReadService(name),
 			runtime.ReadVersion(version),
 		}
 
 		// return the runtime services
-		if runType {
-			opts = append(opts, runtime.ReadType("runtime"))
-		} else {
-			opts = append(opts, runtime.ReadType(typ))
+		if len(typ) > 0 {
+			readOpts = append(readOpts, runtime.ReadType(typ))
 		}
 
-		// read the service
-		services, err = r.Read(opts...)
 	}
 
-	// check the error
+	// read the service
+	services, err = r.Read(readOpts...)
 	if err != nil {
 		fmt.Println(err)
 		return
@@ -283,19 +341,29 @@ func getService(ctx *cli.Context, srvOpts ...micro.Option) {
 	sort.Slice(services, func(i, j int) bool { return services[i].Name < services[j].Name })
 
 	writer := tabwriter.NewWriter(os.Stdout, 0, 8, 1, '\t', tabwriter.AlignRight)
-	fmt.Fprintln(writer, "NAME\tVERSION\tSOURCE\tSTATUS\tBUILD\tMETADATA")
+	fmt.Fprintln(writer, "NAME\tVERSION\tSOURCE\tSTATUS\tBUILD\tUPDATED\tMETADATA")
 	for _, service := range services {
 		status := parse(service.Metadata["status"])
 		if status == "error" {
 			status = service.Metadata["error"]
 		}
 
-		fmt.Fprintf(writer, "%s\t%s\t%s\t%s\t%s\t%s\n",
+		// cut the commit down to first 7 characters
+		build := parse(service.Metadata["build"])
+		if len(build) > 7 {
+			build = build[:7]
+		}
+
+		// parse when the service was started
+		updated := parse(timeAgo(service.Metadata["started"]))
+
+		fmt.Fprintf(writer, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			service.Name,
 			parse(service.Version),
 			parse(service.Source),
-			status,
-			parse(service.Metadata["build"]),
+			strings.ToLower(status),
+			build,
+			updated,
 			fmt.Sprintf("owner=%s,group=%s", parse(service.Metadata["owner"]), parse(service.Metadata["group"])))
 	}
 	writer.Flush()

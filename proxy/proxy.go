@@ -28,11 +28,11 @@ import (
 	rs "github.com/micro/go-micro/v2/router/service"
 	"github.com/micro/go-micro/v2/server"
 	sgrpc "github.com/micro/go-micro/v2/server/grpc"
-	cfstore "github.com/micro/go-micro/v2/store/cloudflare"
-	"github.com/micro/go-micro/v2/sync/lock/memory"
+	"github.com/micro/go-micro/v2/sync/memory"
 	"github.com/micro/go-micro/v2/util/mux"
 	"github.com/micro/go-micro/v2/util/wrapper"
 	"github.com/micro/micro/v2/internal/helper"
+	cfstore "github.com/micro/micro/v2/internal/plugins/store/cloudflare"
 )
 
 var (
@@ -178,7 +178,7 @@ func run(ctx *cli.Context, srvOpts ...micro.Option) {
 				cfstore.CacheTTL(time.Minute),
 			)
 			storage := certmagic.NewStorage(
-				memory.NewLock(),
+				memory.NewSync(),
 				cloudflareStore,
 			)
 			config := cloudflare.NewDefaultConfig()
@@ -221,28 +221,19 @@ func run(ctx *cli.Context, srvOpts ...micro.Option) {
 	}
 
 	// add auth wrapper to server
-	if ctx.IsSet("auth") {
-		a, ok := cmd.DefaultAuths[ctx.String("auth")]
-		if !ok {
-			log.Fatalf("%v is not a valid auth", ctx.String("auth"))
-			return
-		}
-
-		var authOpts []auth.Option
-		if ctx.IsSet("auth_exclude") {
-			authOpts = append(authOpts, auth.Exclude(ctx.StringSlice("auth_exclude")...))
-		}
-		if ctx.IsSet("auth_public_key") {
-			authOpts = append(authOpts, auth.PublicKey(ctx.String("auth_public_key")))
-		}
-		if ctx.IsSet("auth_private_key") {
-			authOpts = append(authOpts, auth.PublicKey(ctx.String("auth_private_key")))
-		}
-
-		authFn := func() auth.Auth { return a(authOpts...) }
-		authOpt := server.WrapHandler(wrapper.AuthHandler(authFn))
-		serverOpts = append(serverOpts, authOpt)
+	var authOpts []auth.Option
+	if ctx.IsSet("auth_public_key") {
+		authOpts = append(authOpts, auth.PublicKey(ctx.String("auth_public_key")))
 	}
+	if ctx.IsSet("auth_private_key") {
+		authOpts = append(authOpts, auth.PublicKey(ctx.String("auth_private_key")))
+	}
+
+	a := *cmd.DefaultOptions().Auth
+	a.Init(authOpts...)
+	authFn := func() auth.Auth { return a }
+	authOpt := server.WrapHandler(wrapper.AuthHandler(authFn))
+	serverOpts = append(serverOpts, authOpt)
 
 	// set proxy
 	if p == nil && len(Protocol) > 0 {
@@ -326,11 +317,6 @@ func Commands(options ...micro.Option) []*cli.Command {
 				Name:    "endpoint",
 				Usage:   "Set the endpoint to route to e.g greeter or localhost:9090",
 				EnvVars: []string{"MICRO_PROXY_ENDPOINT"},
-			},
-			&cli.StringFlag{
-				Name:    "auth",
-				Usage:   "Set the proxy auth e.g jwt",
-				EnvVars: []string{"MICRO_PROXY_AUTH"},
 			},
 		},
 		Action: func(ctx *cli.Context) error {

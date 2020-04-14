@@ -74,11 +74,13 @@ type series struct {
 }
 
 var (
+	// status ticks for updating local service stauts
+	statusTick = time.Second * 10
 	// TODO: if events are racy lower updateTick
 	// the time at which we check events
 	eventTick = time.Minute
 	// the time at which we read all records
-	updateTick = time.Minute * 10
+	updateTick = time.Minute * 5
 )
 
 func copyService(s *runtimeService) *runtime.Service {
@@ -301,6 +303,41 @@ func (m *manager) processEvents(newEvents []*event) error {
 	return nil
 }
 
+func (m *manager) updateStatus() error {
+	services, err := m.Runtime.Read()
+	if err != nil {
+		log.Errorf("Failed to list runtime services: %v", err)
+		return err
+	}
+
+	m.Lock()
+	defer m.Unlock()
+
+	running := make(map[string]*runtime.Service)
+
+	// update running status
+	for _, service := range services {
+		k := key(service)
+		// create running map
+		running[k] = service
+	}
+
+	// delete from local cache
+	for k, v := range m.services {
+		srv, ok := running[k]
+		if !ok {
+			delete(m.services, k)
+			continue
+		}
+
+		// update the service
+		v.Service = srv
+		m.services[k] = v
+	}
+
+	return nil
+}
+
 // full refresh of the service list
 func (m *manager) processServices() error {
 	// list the keys from store
@@ -312,7 +349,7 @@ func (m *manager) processServices() error {
 
 	// list whats already runnning
 	// TODO: change to read service: prefix
-	services, err := m.Runtime.List()
+	services, err := m.Runtime.Read()
 	if err != nil {
 		log.Errorf("Failed to list runtime services: %v", err)
 		return err
@@ -352,6 +389,8 @@ func (m *manager) processServices() error {
 			if e := v.Metadata["error"]; len(e) > 0 {
 				rs.Error = errors.New(e)
 			}
+			// replace service entry
+			rs.Service = v
 			continue
 		}
 
@@ -361,13 +400,14 @@ func (m *manager) processServices() error {
 		// create a new set of options to use
 		opts := []runtime.CreateOption{
 			runtime.WithCommand(rs.Options.Command...),
+			runtime.WithArgs(rs.Options.Args...),
 			runtime.WithEnv(env),
 			runtime.CreateType(rs.Options.Type),
+			runtime.CreateImage(rs.Options.Image),
 		}
 
 		// set the status to starting
 		rs.Status = "started"
-
 		// service does not exist so start it
 		if err := m.Runtime.Create(rs.Service, opts...); err != nil {
 			if err != runtime.ErrAlreadyExists {
@@ -443,6 +483,10 @@ func (m *manager) run() {
 	t2 := time.NewTicker(updateTick)
 	defer t2.Stop()
 
+	// status tick for updating status
+	t3 := time.NewTicker(statusTick)
+	defer t3.Stop()
+
 	// save the existing set of events since on startup
 	// we dont want to apply deltas
 	m.Lock()
@@ -458,7 +502,6 @@ func (m *manager) run() {
 	for {
 		select {
 		case <-t1.C:
-		case <-t1.C:
 			// jitter between 0 and 30 seconds
 			time.Sleep(jitter.Do(time.Second * 30))
 			// save and apply events
@@ -471,6 +514,8 @@ func (m *manager) run() {
 			time.Sleep(jitter.Do(time.Minute))
 			// checks services to run in the store
 			m.processServices()
+		case <-t3.C:
+			m.updateStatus()
 		case ev := <-m.eventChan:
 			// save an event
 			events = append(events, ev)
@@ -554,12 +599,17 @@ func (m *manager) Read(opts ...runtime.ReadOption) ([]*runtime.Service, error) {
 	for _, rs := range m.services {
 		srv := options.Service
 		ver := options.Version
+		typ := options.Type
 
 		if len(srv) > 0 && rs.Service.Name != srv {
 			continue
 		}
 
 		if len(ver) > 0 && rs.Service.Version != ver {
+			continue
+		}
+
+		if len(typ) > 0 && rs.Service.Metadata["type"] != typ {
 			continue
 		}
 
@@ -646,6 +696,7 @@ func (m *manager) Delete(s *runtime.Service) error {
 
 	// set status
 	v.Status = "stopped"
+	v.Service.Metadata["status"] = "stopped"
 
 	// create new event
 	ev := &event{
@@ -661,19 +712,6 @@ func (m *manager) Delete(s *runtime.Service) error {
 
 	// delete from store
 	return m.Store.Delete(k)
-}
-
-func (m *manager) List() ([]*runtime.Service, error) {
-	m.RLock()
-	defer m.RUnlock()
-
-	services := make([]*runtime.Service, 0, len(m.services))
-
-	for _, service := range m.services {
-		services = append(services, copyService(service))
-	}
-
-	return services, nil
 }
 
 func (m *manager) Start() error {
@@ -721,12 +759,18 @@ func (m *manager) Stop() error {
 	return nil
 }
 
+func (m *manager) Logs(s *runtime.Service, options ...runtime.LogsOption) (runtime.LogStream, error) {
+	return m.Runtime.Logs(s, options...)
+}
+
 func newManager(ctx *cli.Context, r runtime.Runtime, s store.Store) *manager {
 	var profile []string
 	// peel out the env
 	switch ctx.String("profile") {
 	case "platform":
 		profile = muProfile.Platform()
+	case "server":
+		profile = muProfile.Server()
 	}
 
 	return &manager{

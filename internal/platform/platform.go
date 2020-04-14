@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/micro/cli/v2"
 	"github.com/micro/go-micro/v2/config/cmd"
@@ -16,11 +17,6 @@ import (
 
 	"github.com/micro/micro/v2/internal/update"
 	_ "github.com/micro/micro/v2/internal/usage"
-
-	// import specific plugins
-	k8sRuntime "github.com/micro/go-micro/v2/runtime/kubernetes"
-	cfStore "github.com/micro/go-micro/v2/store/cloudflare"
-	ckStore "github.com/micro/go-micro/v2/store/cockroach"
 )
 
 var (
@@ -39,7 +35,6 @@ var (
 		"store",    // :8002
 		"tunnel",   // :8083
 		"router",   // :8084
-		"monitor",  // :????
 		"debug",    // :????
 		"proxy",    // :8081
 		"api",      // :8080
@@ -61,12 +56,6 @@ var (
 		"network.api",
 	}
 )
-
-func init() {
-	cmd.DefaultRuntimes["kubernetes"] = k8sRuntime.NewRuntime
-	cmd.DefaultStores["cockroach"] = ckStore.NewStore
-	cmd.DefaultStores["cloudflare"] = cfStore.NewStore
-}
 
 type initScheduler struct {
 	gorun.Scheduler
@@ -92,6 +81,8 @@ func (i *initScheduler) Notify() (<-chan gorun.Event, error) {
 					Timestamp: ev.Timestamp,
 					Type:      ev.Type,
 				}
+				// slow roll the change
+				time.Sleep(time.Second)
 			}
 		}
 

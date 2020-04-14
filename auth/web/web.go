@@ -3,6 +3,7 @@ package web
 import (
 	"net/http"
 	"text/template"
+	"time"
 
 	"github.com/micro/cli/v2"
 	"github.com/micro/go-micro/v2"
@@ -64,9 +65,7 @@ func (h handler) indexHandler(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	if err := t.ExecuteTemplate(w, p.String(), map[string]interface{}{
-		"foo": "bar",
-	}); err != nil {
+	if err := t.ExecuteTemplate(w, p.String(), map[string]interface{}{}); err != nil {
 		http.Error(w, "Error occurred:"+err.Error(), http.StatusInternalServerError)
 	}
 }
@@ -104,16 +103,22 @@ func (h handler) createBasicAccountHandler(w http.ResponseWriter, req *http.Requ
 		return
 	}
 
-	acc, err := h.auth.Generate(email)
+	_, err := h.auth.Generate(email, auth.WithSecret(pass))
+	if err != nil {
+		renderError(err.Error())
+		return
+	}
+
+	tok, err := h.auth.Token(auth.WithExpiry(time.Hour*24), auth.WithCredentials(email, pass))
 	if err != nil {
 		renderError(err.Error())
 		return
 	}
 
 	http.SetCookie(w, &http.Cookie{
-		Name:    auth.CookieName,
-		Value:   acc.Token,
-		Expires: acc.Expiry,
+		Name:    auth.TokenCookieName,
+		Value:   tok.AccessToken,
+		Expires: tok.Expiry,
 		Secure:  true,
 	})
 

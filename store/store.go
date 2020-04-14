@@ -6,32 +6,32 @@ import (
 
 	"github.com/micro/cli/v2"
 	"github.com/micro/go-micro/v2"
+	"github.com/micro/go-micro/v2/config/cmd"
 	log "github.com/micro/go-micro/v2/logger"
 	"github.com/micro/go-micro/v2/store"
 	pb "github.com/micro/go-micro/v2/store/service/proto"
+	mcli "github.com/micro/micro/v2/cli"
 	"github.com/micro/micro/v2/store/handler"
-
-	"github.com/micro/go-micro/v2/store/cockroach"
-	"github.com/micro/go-micro/v2/store/memory"
+	"github.com/pkg/errors"
 )
 
 var (
-	// Name of the tunnel service
+	// Name of the store service
 	Name = "go.micro.store"
-	// Address is the tunnel address
+	// Address is the store address
 	Address = ":8002"
 	// Backend is the implementation of the store
 	Backend = "memory"
 	// Nodes is passed to the underlying backend
 	Nodes = []string{"localhost"}
-	// Namespace is passed to the underlying backend if set.
-	Namespace = ""
-	// Prefix is passed to the underlying backend if set.
-	Prefix = ""
+	// Database is passed to the underlying backend if set.
+	Database = "micro"
+	// Table is passed to the underlying backend if set.
+	Table = "store"
 )
 
 // run runs the micro server
-func run(ctx *cli.Context, srvOpts ...micro.Option) {
+func Run(ctx *cli.Context, srvOpts ...micro.Option) {
 	log.Init(log.WithFields(map[string]interface{}{"service": "store"}))
 
 	// Init plugins
@@ -45,14 +45,17 @@ func run(ctx *cli.Context, srvOpts ...micro.Option) {
 	if len(ctx.String("address")) > 0 {
 		Address = ctx.String("address")
 	}
-	if len(ctx.String("backend")) > 0 {
-		Backend = ctx.String("backend")
+	if len(ctx.String("store")) > 0 {
+		Backend = ctx.String("store")
 	}
-	if len(ctx.String("nodes")) > 0 {
-		Nodes = strings.Split(ctx.String("nodes"), ",")
+	if len(ctx.String("store_address")) > 0 {
+		Nodes = strings.Split(ctx.String("store_address"), ",")
 	}
-	if len(ctx.String("namespace")) > 0 {
-		Namespace = ctx.String("namespace")
+	if len(ctx.String("store_database")) > 0 {
+		Database = ctx.String("store_database")
+	}
+	if len(ctx.String("store_table")) > 0 {
+		Table = ctx.String("store_table")
 	}
 
 	// Initialise service
@@ -63,11 +66,11 @@ func run(ctx *cli.Context, srvOpts ...micro.Option) {
 	)
 
 	opts := []store.Option{store.Nodes(Nodes...)}
-	if len(Namespace) > 0 {
-		opts = append(opts, store.Namespace(Namespace))
+	if len(Database) > 0 {
+		opts = append(opts, store.Database(Database))
 	}
-	if len(Prefix) > 0 {
-		opts = append(opts, store.Prefix(Prefix))
+	if len(Table) > 0 {
+		opts = append(opts, store.Table(Table))
 	}
 
 	// the store handler
@@ -75,31 +78,49 @@ func run(ctx *cli.Context, srvOpts ...micro.Option) {
 		Stores: make(map[string]store.Store),
 	}
 
-	switch Backend {
-	case "memory":
-		// set the default store
-		storeHandler.Default = memory.NewStore(opts...)
-		// set the new store initialiser
-		storeHandler.New = func(namespace string, prefix string) store.Store {
-			// return a new memory store
-			return memory.NewStore(
-				store.Namespace(namespace),
-				store.Prefix(prefix),
-			)
-		}
-	case "cockroach":
-		// set the default store
-		storeHandler.Default = cockroach.NewStore(opts...)
-		// set the new store initialiser
-		storeHandler.New = func(namespace string, prefix string) store.Store {
-			return cockroach.NewStore(
-				store.Nodes(Nodes...),
-				store.Namespace(namespace),
-				store.Prefix(prefix),
-			)
-		}
-	default:
+	// get from the existing list of stores
+	newStore, ok := cmd.DefaultStores[Backend]
+	if !ok {
 		log.Fatalf("%s is not an implemented store", Backend)
+	}
+
+	log.Infof("Initialising the [%s] store with opts: nodes=%v database=%v table=%v", Backend, Nodes, Database, Table)
+
+	// set the default store
+	storeHandler.Default = newStore(opts...)
+
+	// set the internal store
+	storeHandler.Internal = newStore(
+		store.Nodes(Nodes...),
+		store.Database(Database),
+		store.Table("internal"),
+	)
+
+	// set the new store initialiser
+	storeHandler.New = func(database string, table string) (store.Store, error) {
+		// return a new default store
+		v := newStore(
+			store.Nodes(Nodes...),
+			store.Database(database),
+			store.Table(table),
+		)
+		if err := v.Init(); err != nil {
+			return nil, err
+		}
+		// Record the new database and table in the internal store
+		if err := storeHandler.Internal.Write(&store.Record{
+			Key:   "databases/" + database,
+			Value: []byte{},
+		}); err != nil {
+			return nil, errors.Wrap(err, "micro store couldn't store new database in internal table")
+		}
+		if err := storeHandler.Internal.Write(&store.Record{
+			Key:   "tables/" + database + "/" + table,
+			Value: []byte{},
+		}); err != nil {
+			return nil, errors.Wrap(err, "micro store couldn't store new table in internal table")
+		}
+		return v, nil
 	}
 
 	pb.RegisterStoreHandler(service.Server(), storeHandler)
@@ -121,32 +142,12 @@ func Commands(options ...micro.Option) []*cli.Command {
 				Usage:   "Set the micro tunnel address :8002",
 				EnvVars: []string{"MICRO_SERVER_ADDRESS"},
 			},
-			&cli.StringFlag{
-				Name:    "backend",
-				Usage:   "Set the backend for the micro store",
-				EnvVars: []string{"MICRO_STORE_BACKEND"},
-				Value:   "memory",
-			},
-			&cli.StringFlag{
-				Name:    "nodes",
-				Usage:   "Comma separated list of Nodes to pass to the store backend",
-				EnvVars: []string{"MICRO_STORE_NODES"},
-			},
-			&cli.StringFlag{
-				Name:    "namespace",
-				Usage:   "Namespace to pass to the store backend",
-				EnvVars: []string{"MICRO_STORE_NAMESPACE"},
-			},
-			&cli.StringFlag{
-				Name:    "prefix",
-				Usage:   "Key prefix to pass to the store backend",
-				EnvVars: []string{"MICRO_STORE_PREFIX"},
-			},
 		},
 		Action: func(ctx *cli.Context) error {
-			run(ctx, options...)
+			Run(ctx, options...)
 			return nil
 		},
+		Subcommands: mcli.StoreCommands(),
 	}
 
 	for _, p := range Plugins() {
