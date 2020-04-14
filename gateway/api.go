@@ -235,11 +235,9 @@ func run(ctx *cli.Context, regOpt regRouter.Option, srvOpts ...micro.Option) {
 		log.Infof("Registering API RPC Handler at %s", APIPath)
 		rt := regRouter.NewRouter(
 			regRouter.WithOption(regOpt),
-			regRouter.WithRouterOption(
-				router.WithHandler(arpc.Handler),
-				router.WithResolver(rr),
-				router.WithRegistry(service.Options().Registry),
-			),
+			router.WithHandler(arpc.Handler),
+			router.WithResolver(rr),
+			router.WithRegistry(service.Options().Registry),
 		)
 		rp := arpc.NewHandler(
 			ahandler.WithNamespace(apiNamespace),
@@ -251,11 +249,9 @@ func run(ctx *cli.Context, regOpt regRouter.Option, srvOpts ...micro.Option) {
 		log.Infof("Registering API Request Handler at %s", APIPath)
 		rt := regRouter.NewRouter(
 			regRouter.WithOption(regOpt),
-			regRouter.WithRouterOption(
-				router.WithHandler(aapi.Handler),
-				router.WithResolver(rr),
-				router.WithRegistry(service.Options().Registry),
-			),
+			router.WithHandler(aapi.Handler),
+			router.WithResolver(rr),
+			router.WithRegistry(service.Options().Registry),
 		)
 		ap := aapi.NewHandler(
 			ahandler.WithNamespace(apiNamespace),
@@ -267,11 +263,9 @@ func run(ctx *cli.Context, regOpt regRouter.Option, srvOpts ...micro.Option) {
 		log.Infof("Registering API Event Handler at %s", APIPath)
 		rt := regRouter.NewRouter(
 			regRouter.WithOption(regOpt),
-			regRouter.WithRouterOption(
-				router.WithHandler(event.Handler),
-				router.WithResolver(rr),
-				router.WithRegistry(service.Options().Registry),
-			),
+			router.WithHandler(event.Handler),
+			router.WithResolver(rr),
+			router.WithRegistry(service.Options().Registry),
 		)
 		ev := event.NewHandler(
 			ahandler.WithNamespace(apiNamespace),
@@ -283,11 +277,9 @@ func run(ctx *cli.Context, regOpt regRouter.Option, srvOpts ...micro.Option) {
 		log.Infof("Registering API HTTP Handler at %s", ProxyPath)
 		rt := regRouter.NewRouter(
 			regRouter.WithOption(regOpt),
-			regRouter.WithRouterOption(
-				router.WithHandler(ahttp.Handler),
-				router.WithResolver(rr),
-				router.WithRegistry(service.Options().Registry),
-			),
+			router.WithHandler(ahttp.Handler),
+			router.WithResolver(rr),
+			router.WithRegistry(service.Options().Registry),
 		)
 		ht := ahttp.NewHandler(
 			ahandler.WithNamespace(apiNamespace),
@@ -299,11 +291,9 @@ func run(ctx *cli.Context, regOpt regRouter.Option, srvOpts ...micro.Option) {
 		log.Infof("Registering API Web Handler at %s", APIPath)
 		rt := regRouter.NewRouter(
 			regRouter.WithOption(regOpt),
-			regRouter.WithRouterOption(
-				router.WithHandler(web.Handler),
-				router.WithResolver(rr),
-				router.WithRegistry(service.Options().Registry),
-			),
+			router.WithHandler(web.Handler),
+			router.WithResolver(rr),
+			router.WithRegistry(service.Options().Registry),
 		)
 		w := web.NewHandler(
 			ahandler.WithNamespace(apiNamespace),
@@ -315,10 +305,8 @@ func run(ctx *cli.Context, regOpt regRouter.Option, srvOpts ...micro.Option) {
 		log.Infof("Registering API Default Handler at %s", APIPath)
 		rt := regRouter.NewRouter(
 			regRouter.WithOption(regOpt),
-			regRouter.WithRouterOption(
-				router.WithResolver(rr),
-				router.WithRegistry(service.Options().Registry),
-			),
+			router.WithResolver(rr),
+			router.WithRegistry(service.Options().Registry),
 		)
 		r.PathPrefix(APIPath).Handler(handler.Meta(service, rt, nsResolver.Resolve))
 	}

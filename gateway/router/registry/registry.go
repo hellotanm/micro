@@ -392,8 +392,8 @@ func (r *registryRouter) Route(req *http.Request) (*api.Service, error) {
 	return nil, errors.New("unknown handler")
 }
 
-func newRouter(opts ...Option) *registryRouter {
-	options := NewOptions(opts...)
+func newRouter(opt Option, opts ...router.Option) *registryRouter {
+	options := NewOptions(opt, WithRouterOption(opts...))
 	r := &registryRouter{
 		exit: make(chan bool),
 		opts: options,
@@ -406,6 +406,6 @@ func newRouter(opts ...Option) *registryRouter {
 }
 
 // NewRouter returns the default router
-func NewRouter(opts ...Option) router.Router {
-	return newRouter(opts...)
+func NewRouter(opt Option, opts ...router.Option) router.Router {
+	return newRouter(opt, opts...)
 }
