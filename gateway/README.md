@@ -7,6 +7,7 @@
 ## 使用
 
 [example](/gateway/example/main.go)
+
 ```go
 package main
 
@@ -31,4 +32,10 @@ func main() {
 		// micro option
 	)
 }
+```
+
+运行网关
+
+```shell script
+$ micro gateway
 ```
