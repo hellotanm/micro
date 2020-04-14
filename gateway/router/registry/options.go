@@ -9,7 +9,7 @@ import (
 
 type Options struct {
 	router.Options
-	routerOpt []router.Option
+	routerOpts []router.Option
 
 	Filters []Filter
 }
@@ -22,28 +22,37 @@ func NewOptions(opts ...Option) Options {
 	options := Options{}
 
 	for _, o := range opts {
+		if o == nil {
+			continue
+		}
 		o(&options)
 	}
 
-	options.Options = router.NewOptions(options.routerOpt...)
+	options.Options = router.NewOptions(options.routerOpts...)
 
 	return options
 }
 
+// Router options, override by NewRouter()'s router.Option
 func WithRouterOption(opt ...router.Option) Option {
 	return func(o *Options) {
-		o.routerOpt = append(o.routerOpt, opt...)
+		o.routerOpts = append(o.routerOpts, opt...)
 	}
 }
 
-func WithFilter(fn ...Filter) Option {
+func WithFilter(f ...Filter) Option {
 	return func(o *Options) {
-		o.Filters = append(o.Filters, fn...)
+		o.Filters = append(o.Filters, f...)
 	}
 }
 
-func WithOption(opt Option) Option {
+func WithOption(opts ...Option) Option {
 	return func(o *Options) {
-		opt(o)
+		for _, opt := range opts {
+			if opt == nil {
+				continue
+			}
+			opt(o)
+		}
 	}
 }
