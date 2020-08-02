@@ -4,54 +4,50 @@ import (
 	"net/http"
 	"net/url"
 	"testing"
+	"time"
 
-	"github.com/micro/go-micro/v2/api/resolver"
-	"github.com/micro/go-micro/v2/client/selector"
-	"github.com/micro/go-micro/v2/registry"
-	"github.com/micro/go-micro/v2/registry/memory"
+	"github.com/micro/go-micro/v3/api/resolver"
+	goregistry "github.com/micro/go-micro/v3/registry"
+	"github.com/micro/micro/v3/profile"
+	"github.com/micro/micro/v3/service/registry"
+	"github.com/micro/micro/v3/service/router"
 )
 
 func TestWebResolver(t *testing.T) {
-	r := memory.NewRegistry()
-
-	selector := selector.NewSelector(
-		selector.Registry(r),
-	)
+	profile.Test.Setup(nil)
 
 	res := &Resolver{
-		Namespace: resolver.StaticNamespace("go.micro.web"),
-		Selector:  selector,
+		Options: resolver.NewOptions(
+			resolver.WithServicePrefix("go.micro.web"),
+		),
+		Router: router.DefaultRouter,
 	}
 
 	testCases := []struct {
 		Host    string
 		Path    string
 		Service string
-		Type    string
 	}{
-		{"web.micro.mu", "/home", "go.micro.web.home", "domain"},
-		{"localhost:8082", "/foobar", "go.micro.web.foobar", "path"},
-		{"web.micro.mu", "/foobar", "go.micro.web.foobar", "path"},
-		{"127.0.0.1:8082", "/hello", "go.micro.web.hello", "path"},
-		{"foo.micro.mu", "/", "go.micro.web.foo", "domain"},
-		{"foo.m3o.app", "/foo", "foo.foo", "domain"},
-		{"demo.m3o.app", "/bar", "go.micro.web.bar", "path"},
+		{"localhost:8082", "/foobar", "go.micro.web.foobar"},
+		{"web.micro.mu", "/foobar", "go.micro.web.foobar"},
+		{"127.0.0.1:8082", "/hello", "go.micro.web.hello"},
+		{"demo.m3o.app", "/bar", "go.micro.web.bar"},
 	}
 
 	for _, service := range testCases {
 		t.Run(service.Host+service.Path, func(t *testing.T) {
-			// set resolver type
-			res.Type = service.Type
-
-			v := &registry.Service{
+			v := &goregistry.Service{
 				Name:    service.Service,
 				Version: "latest",
-				Nodes: []*registry.Node{
+				Nodes: []*goregistry.Node{
 					{Id: "1", Address: "127.0.0.1:8080"},
 				},
 			}
 
-			r.Register(v)
+			registry.Register(v)
+
+			// registry events are published to the router async (although if we don't wait the fallback should still kick in)
+			time.Sleep(time.Millisecond * 10)
 
 			u, err := url.Parse("https://" + service.Host + service.Path)
 			if err != nil {
@@ -69,7 +65,7 @@ func TestWebResolver(t *testing.T) {
 				t.Fatalf("Failed to resolve %v", service.Host)
 			}
 
-			r.Deregister(v)
+			registry.Deregister(v)
 		})
 	}
 

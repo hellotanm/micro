@@ -1,18 +1,22 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"os"
-	"os/signal"
-	"syscall"
+	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/micro/cli/v2"
-	"github.com/micro/go-micro/v2"
-	"github.com/micro/go-micro/v2/config/cmd"
-	log "github.com/micro/go-micro/v2/logger"
-	gorun "github.com/micro/go-micro/v2/runtime"
-	"github.com/micro/micro/v2/internal/platform"
-	"github.com/micro/micro/v2/internal/update"
+	gorun "github.com/micro/go-micro/v3/runtime"
+	"github.com/micro/go-micro/v3/util/file"
+	"github.com/micro/micro/v3/client/cli/util"
+	"github.com/micro/micro/v3/cmd"
+	"github.com/micro/micro/v3/service"
+	"github.com/micro/micro/v3/service/client"
+	log "github.com/micro/micro/v3/service/logger"
+	"github.com/micro/micro/v3/service/runtime"
 )
 
 var (
@@ -20,20 +24,16 @@ var (
 	services = []string{
 		// runtime services
 		"config",   // ????
-		"network",  // :8085
+		"auth",     // :8010
+		"network",  // :8443
 		"runtime",  // :8088
 		"registry", // :8000
 		"broker",   // :8001
 		"store",    // :8002
-		"tunnel",   // :8083
-		"router",   // :8084
 		"debug",    // :????
 		"proxy",    // :8081
 		"api",      // :8080
-		"auth",     // :8010
 		"web",      // :8082
-		"bot",      // :????
-		"init",     // no port, manage self
 	}
 )
 
@@ -44,30 +44,46 @@ var (
 	Address = ":10001"
 )
 
-func Commands(options ...micro.Option) []*cli.Command {
+// upload is used for file uploads to the server
+func upload(ctx *cli.Context, args []string) ([]byte, error) {
+	if ctx.Args().Len() == 0 {
+		return nil, errors.New("Required filename to upload")
+	}
+
+	filename := ctx.Args().Get(0)
+	localfile := ctx.Args().Get(1)
+
+	fileClient := file.New("go.micro.server", client.DefaultClient)
+	return nil, fileClient.Upload(filename, localfile)
+}
+
+func init() {
 	command := &cli.Command{
 		Name:  "server",
 		Usage: "Run the micro server",
+		Description: `Launching the micro server ('micro server') will enable one to connect to it by
+		setting the appropriate Micro environment (see 'micro env' && 'micro env --help') commands.`,
 		Flags: []cli.Flag{
 			&cli.StringFlag{
 				Name:    "address",
 				Usage:   "Set the micro server address :10001",
 				EnvVars: []string{"MICRO_SERVER_ADDRESS"},
 			},
-			&cli.BoolFlag{
-				Name:  "peer",
-				Usage: "Peer with the global network to share services",
-			},
-			&cli.StringFlag{
-				Name:    "profile",
-				Usage:   "Set the runtime profile to use for services e.g local, kubernetes, platform",
-				EnvVars: []string{"MICRO_RUNTIME_PROFILE"},
-			},
 		},
 		Action: func(ctx *cli.Context) error {
 			Run(ctx)
 			return nil
 		},
+		Subcommands: []*cli.Command{{
+			Name:  "file",
+			Usage: "Move files between your local machine and the server",
+			Subcommands: []*cli.Command{
+				{
+					Name:   "upload",
+					Action: util.Print(upload),
+				},
+			},
+		}},
 	}
 
 	for _, p := range Plugins() {
@@ -80,60 +96,20 @@ func Commands(options ...micro.Option) []*cli.Command {
 		}
 	}
 
-	return []*cli.Command{command}
+	cmd.Register(command)
 }
 
 // Run runs the entire platform
 func Run(context *cli.Context) error {
-	log.Init(log.WithFields(map[string]interface{}{"service": "micro"}))
-
 	if context.Args().Len() > 0 {
 		cli.ShowSubcommandHelp(context)
 		os.Exit(1)
 	}
-	// set default profile
-	if len(context.String("profile")) == 0 {
-		context.Set("profile", "server")
-	}
 
-	// get the network flag
-	peer := context.Bool("peer")
-
-	// pass through the environment
-	// TODO: perhaps don't do this
-	env := os.Environ()
-	env = append(env, "MICRO_STORE=file")
-	env = append(env, "MICRO_RUNTIME_PROFILE="+context.String("profile"))
-
-	// connect to the network if specified
-	if peer {
-		log.Info("Setting global network")
-
-		if v := os.Getenv("MICRO_NETWORK_NODES"); len(v) == 0 {
-			// set the resolver to use https://micro.mu/network
-			env = append(env, "MICRO_NETWORK_NODES=network.micro.mu")
-			log.Info("Setting default network micro.mu")
-		}
-		if v := os.Getenv("MICRO_NETWORK_TOKEN"); len(v) == 0 {
-			// set the network token
-			env = append(env, "MICRO_NETWORK_TOKEN=micro.mu")
-			log.Info("Setting default network token")
-		}
-	}
+	// TODO: reimplement peering of servers e.g --peer=node1,node2,node3
+	// peers are configured as network nodes to cluster between
 
 	log.Info("Loading core services")
-
-	// create new micro runtime
-	muRuntime := cmd.DefaultCmd.Options().Runtime
-
-	// Use default update notifier
-	if context.Bool("auto_update") {
-		options := []gorun.Option{
-			gorun.WithScheduler(update.NewScheduler(platform.Version)),
-		}
-		(*muRuntime).Init(options...)
-	}
-
 	for _, service := range services {
 		name := service
 
@@ -141,60 +117,108 @@ func Run(context *cli.Context) error {
 			name = fmt.Sprintf("%s.%s", namespace, service)
 		}
 
+		// set the proxy addres, default to the network running locally
+		proxy := context.String("proxy_address")
+		if len(proxy) == 0 {
+			proxy = "127.0.0.1:8443"
+		}
+
 		log.Infof("Registering %s", name)
+		// @todo this is a hack
+		env := []string{}
+		cmdArgs := []string{}
+
+		switch service {
+		case "proxy", "web", "api", "bot", "cli":
+			// pull the values we care about from environment
+			for _, val := range os.Environ() {
+				// only process MICRO_ values
+				if !strings.HasPrefix(val, "MICRO_") {
+					continue
+				}
+				// override any profile value because clients
+				// talk to services, these may be started
+				// differently in future as a `micro client`
+				if strings.HasPrefix(val, "MICRO_PROFILE=") {
+					val = "MICRO_PROFILE=client"
+				}
+				env = append(env, val)
+			}
+		default:
+			// run server as "micro service [cmd]"
+			cmdArgs = append(cmdArgs, "service")
+
+			// pull the values we care about from environment
+			for _, val := range os.Environ() {
+				// only process MICRO_ values
+				if !strings.HasPrefix(val, "MICRO_") {
+					continue
+				}
+				env = append(env, val)
+			}
+		}
+
+		// inject the proxy address for all services but the network, as we don't want
+		// that calling itself
+		if len(proxy) > 0 && service != "network" {
+			env = append(env, "MICRO_PROXY="+proxy)
+		}
+
+		// we want to pass through the global args so go up one level in the context lineage
+		if len(context.Lineage()) > 1 {
+			globCtx := context.Lineage()[1]
+			for _, f := range globCtx.FlagNames() {
+				cmdArgs = append(cmdArgs, "--"+f, context.String(f))
+			}
+		}
+		cmdArgs = append(cmdArgs, service)
 
 		// runtime based on environment we run the service in
 		args := []gorun.CreateOption{
 			gorun.WithCommand(os.Args[0]),
-			gorun.WithArgs(service),
+			gorun.WithArgs(cmdArgs...),
 			gorun.WithEnv(env),
 			gorun.WithOutput(os.Stdout),
+			gorun.WithRetries(10),
+			gorun.CreateImage("micro/micro"),
 		}
 
 		// NOTE: we use Version right now to check for the latest release
-		muService := &gorun.Service{Name: name, Version: platform.Version}
-		if err := (*muRuntime).Create(muService, args...); err != nil {
-			log.Errorf("Failed to create runtime enviroment: %v", err)
+		muService := &gorun.Service{Name: name, Version: fmt.Sprintf("%d", time.Now().Unix())}
+		if err := runtime.Create(muService, args...); err != nil {
+			log.Errorf("Failed to create runtime environment: %v", err)
 			return err
 		}
 	}
 
-	shutdown := make(chan os.Signal, 1)
-	signal.Notify(shutdown, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
-
 	log.Info("Starting service runtime")
 
 	// start the runtime
-	if err := (*muRuntime).Start(); err != nil {
+	if err := runtime.DefaultRuntime.Start(); err != nil {
 		log.Fatal(err)
 		return err
 	}
-
+	defer runtime.DefaultRuntime.Stop()
 	log.Info("Service runtime started")
 
 	// TODO: should we launch the console?
 	// start the console
 	// cli.Init(context)
 
-	server := micro.NewService(
-		micro.Name(Name),
-		micro.Address(Address),
+	srv := service.New(
+		service.Name(Name),
+		service.Address(Address),
 	)
 
+	// @todo make this configurable
+	uploadDir := filepath.Join(os.TempDir(), "micro", "uploads")
+	os.MkdirAll(uploadDir, 0777)
+	file.RegisterHandler(srv.Server(), uploadDir)
+
 	// start the server
-	server.Run()
-
-	log.Info("Stopping service runtime")
-
-	// stop all the things
-	if err := (*muRuntime).Stop(); err != nil {
-		log.Fatal(err)
-		return err
+	if err := srv.Run(); err != nil {
+		log.Fatalf("Error running server: %v", err)
 	}
 
-	log.Info("Service runtime shutdown")
-
-	// exit success
-	os.Exit(0)
 	return nil
 }
