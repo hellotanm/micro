@@ -1,45 +1,44 @@
 // Package api is an API Gateway
-package api
+package gateway
 
 import (
 	"fmt"
 	"net/http"
 	"os"
-	"strings"
-	"time"
 
 	"github.com/go-acme/lego/v3/providers/dns/cloudflare"
 	"github.com/gorilla/mux"
 	"github.com/micro/cli/v2"
-	"github.com/micro/go-micro/v2"
-	ahandler "github.com/micro/go-micro/v2/api/handler"
-	aapi "github.com/micro/go-micro/v2/api/handler/api"
-	"github.com/micro/go-micro/v2/api/handler/event"
-	ahttp "github.com/micro/go-micro/v2/api/handler/http"
-	arpc "github.com/micro/go-micro/v2/api/handler/rpc"
-	"github.com/micro/go-micro/v2/api/handler/web"
-	"github.com/micro/go-micro/v2/api/resolver"
-	"github.com/micro/go-micro/v2/api/resolver/grpc"
-	"github.com/micro/go-micro/v2/api/resolver/host"
-	"github.com/micro/go-micro/v2/api/resolver/path"
-	"github.com/micro/go-micro/v2/api/router"
-	"github.com/micro/go-micro/v2/api/server"
-	"github.com/micro/go-micro/v2/api/server/acme"
-	"github.com/micro/go-micro/v2/api/server/acme/autocert"
-	"github.com/micro/go-micro/v2/api/server/acme/certmagic"
-	httpapi "github.com/micro/go-micro/v2/api/server/http"
-	log "github.com/micro/go-micro/v2/logger"
-	"github.com/micro/go-micro/v2/sync/memory"
-	"github.com/micro/micro/v2/api/auth"
-	router2 "github.com/micro/micro/v2/gateway/router"
-	regRouter "github.com/micro/micro/v2/gateway/router/registry"
-	"github.com/micro/micro/v2/internal/handler"
-	"github.com/micro/micro/v2/internal/helper"
-	"github.com/micro/micro/v2/internal/namespace"
-	cfstore "github.com/micro/micro/v2/internal/plugins/store/cloudflare"
-	rrmicro "github.com/micro/micro/v2/internal/resolver/api"
-	"github.com/micro/micro/v2/internal/stats"
-	"github.com/micro/micro/v2/plugin"
+	ahandler "github.com/micro/go-micro/v3/api/handler"
+	aapi "github.com/micro/go-micro/v3/api/handler/api"
+	"github.com/micro/go-micro/v3/api/handler/event"
+	ahttp "github.com/micro/go-micro/v3/api/handler/http"
+	arpc "github.com/micro/go-micro/v3/api/handler/rpc"
+	"github.com/micro/go-micro/v3/api/handler/web"
+	"github.com/micro/go-micro/v3/api/resolver"
+	"github.com/micro/go-micro/v3/api/resolver/grpc"
+	"github.com/micro/go-micro/v3/api/resolver/host"
+	"github.com/micro/go-micro/v3/api/resolver/path"
+	"github.com/micro/go-micro/v3/api/router"
+	"github.com/micro/go-micro/v3/api/server"
+	"github.com/micro/go-micro/v3/api/server/acme"
+	"github.com/micro/go-micro/v3/api/server/acme/autocert"
+	"github.com/micro/go-micro/v3/api/server/acme/certmagic"
+	httpapi "github.com/micro/go-micro/v3/api/server/http"
+	"github.com/micro/go-micro/v3/sync/memory"
+	"github.com/micro/micro/v3/client"
+	"github.com/micro/micro/v3/client/api/auth"
+	"github.com/micro/micro/v3/internal/handler"
+	"github.com/micro/micro/v3/internal/helper"
+	rrmicro "github.com/micro/micro/v3/internal/resolver/api"
+	"github.com/micro/micro/v3/internal/stats"
+	"github.com/micro/micro/v3/service"
+	log "github.com/micro/micro/v3/service/logger"
+	muregistry "github.com/micro/micro/v3/service/registry"
+	"github.com/micro/micro/v3/service/store"
+
+	gwRouter "github.com/micro/micro/v3/client/gateway/router"
+	regRouter "github.com/micro/micro/v3/client/gateway/router/registry"
 )
 
 var (
@@ -51,7 +50,6 @@ var (
 	APIPath               = "/"
 	ProxyPath             = "/{service:[a-zA-Z0-9]+}"
 	Namespace             = "go.micro"
-	Type                  = "api"
 	HeaderPrefix          = "X-Micro-"
 	EnableRPC             = false
 	ACMEProvider          = "autocert"
@@ -59,9 +57,7 @@ var (
 	ACMECA                = acme.LetsEncryptProductionCA
 )
 
-func run(ctx *cli.Context, regOpt router2.Option, srvOpts ...micro.Option) {
-	log.Init(log.WithFields(map[string]interface{}{"service": "api"}))
-
+func Run(ctx *cli.Context, gwOpt ...gwRouter.Option) error {
 	if len(ctx.String("server_name")) > 0 {
 		Name = ctx.String("server_name")
 	}
@@ -80,22 +76,20 @@ func run(ctx *cli.Context, regOpt router2.Option, srvOpts ...micro.Option) {
 	if len(ctx.String("acme_provider")) > 0 {
 		ACMEProvider = ctx.String("acme_provider")
 	}
-	if len(ctx.String("type")) > 0 {
-		Type = ctx.String("type")
-	}
 	if len(ctx.String("namespace")) > 0 {
-		// remove the service type from the namespace to allow for
-		// backwards compatability
-		Namespace = strings.TrimSuffix(ctx.String("namespace"), "."+Type)
+		Namespace = ctx.String("namespace")
 	}
-
-	// apiNamespace has the format: "go.micro.api"
-	apiNamespace := Namespace + "." + Type
-
-	// Init plugins
-	for _, p := range Plugins() {
-		p.Init(ctx)
+	if len(ctx.String("api_handler")) > 0 {
+		Handler = ctx.String("api_handler")
 	}
+	if len(ctx.String("api_address")) > 0 {
+		Address = ctx.String("api_address")
+	}
+	if len(ctx.String("api_namespace")) > 0 {
+		Namespace = ctx.String("api_namespace")
+	}
+	// initialise service
+	srv := service.New(service.Name(Name))
 
 	// Init API
 	var opts []server.Option
@@ -111,25 +105,17 @@ func run(ctx *cli.Context, regOpt router2.Option, srvOpts ...micro.Option) {
 			if ACMEChallengeProvider != "cloudflare" {
 				log.Fatal("The only implemented DNS challenge provider is cloudflare")
 			}
-			apiToken, accountID := os.Getenv("CF_API_TOKEN"), os.Getenv("CF_ACCOUNT_ID")
-			kvID := os.Getenv("KV_NAMESPACE_ID")
-			if len(apiToken) == 0 || len(accountID) == 0 {
+
+			apiToken := os.Getenv("CF_API_TOKEN")
+			if len(apiToken) == 0 {
 				log.Fatal("env variables CF_API_TOKEN and CF_ACCOUNT_ID must be set")
 			}
-			if len(kvID) == 0 {
-				log.Fatal("env var KV_NAMESPACE_ID must be set to your cloudflare workers KV namespace ID")
-			}
 
-			cloudflareStore := cfstore.NewStore(
-				cfstore.Token(apiToken),
-				cfstore.Account(accountID),
-				cfstore.Namespace(kvID),
-				cfstore.CacheTTL(time.Minute),
-			)
 			storage := certmagic.NewStorage(
 				memory.NewSync(),
-				cloudflareStore,
+				store.DefaultStore,
 			)
+
 			config := cloudflare.NewDefaultConfig()
 			config.AuthToken = apiToken
 			config.ZoneToken = apiToken
@@ -156,7 +142,7 @@ func run(ctx *cli.Context, regOpt router2.Option, srvOpts ...micro.Option) {
 		config, err := helper.TLSConfig(ctx)
 		if err != nil {
 			fmt.Println(err.Error())
-			return
+			return err
 		}
 
 		opts = append(opts, server.EnableTLS(true))
@@ -193,29 +179,9 @@ func run(ctx *cli.Context, regOpt router2.Option, srvOpts ...micro.Option) {
 	// strip favicon.ico
 	r.HandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {})
 
-	srvOpts = append(srvOpts, micro.Name(Name))
-	if i := time.Duration(ctx.Int("register_ttl")); i > 0 {
-		srvOpts = append(srvOpts, micro.RegisterTTL(i*time.Second))
-	}
-	if i := time.Duration(ctx.Int("register_interval")); i > 0 {
-		srvOpts = append(srvOpts, micro.RegisterInterval(i*time.Second))
-	}
-
-	// initialise service
-	service := micro.NewService(srvOpts...)
-
-	// register rpc handler
-	if EnableRPC {
-		log.Infof("Registering RPC Handler at %s", RPCPath)
-		r.HandleFunc(RPCPath, handler.RPC)
-	}
-
-	// create the namespace resolver
-	nsResolver := namespace.NewResolver(Type, Namespace)
-
 	// resolver options
 	ropts := []resolver.Option{
-		resolver.WithNamespace(nsResolver.Resolve),
+		resolver.WithServicePrefix(Namespace),
 		resolver.WithHandler(Handler),
 	}
 
@@ -231,95 +197,95 @@ func run(ctx *cli.Context, regOpt router2.Option, srvOpts ...micro.Option) {
 		rr = grpc.NewResolver(ropts...)
 	}
 
+	// register rpc handler
+	if EnableRPC {
+		log.Infof("Registering RPC Handler at %s", RPCPath)
+		r.Handle(RPCPath, handler.NewRPCHandler(rr))
+	}
+
 	switch Handler {
 	case "rpc":
 		log.Infof("Registering API RPC Handler at %s", APIPath)
 		rt := regRouter.NewRouter(
-			router2.WithOption(regOpt),
+			gwRouter.WithOption(gwOpt...),
 			router.WithHandler(arpc.Handler),
 			router.WithResolver(rr),
-			router.WithRegistry(service.Options().Registry),
+			router.WithRegistry(muregistry.DefaultRegistry),
 		)
 		rp := arpc.NewHandler(
-			ahandler.WithNamespace(apiNamespace),
+			ahandler.WithNamespace(Namespace),
 			ahandler.WithRouter(rt),
-			ahandler.WithClient(service.Client()),
+			ahandler.WithClient(srv.Client()),
 		)
 		r.PathPrefix(APIPath).Handler(rp)
 	case "api":
 		log.Infof("Registering API Request Handler at %s", APIPath)
 		rt := regRouter.NewRouter(
-			router2.WithOption(regOpt),
+			gwRouter.WithOption(gwOpt...),
 			router.WithHandler(aapi.Handler),
 			router.WithResolver(rr),
-			router.WithRegistry(service.Options().Registry),
+			router.WithRegistry(muregistry.DefaultRegistry),
 		)
 		ap := aapi.NewHandler(
-			ahandler.WithNamespace(apiNamespace),
+			ahandler.WithNamespace(Namespace),
 			ahandler.WithRouter(rt),
-			ahandler.WithClient(service.Client()),
+			ahandler.WithClient(srv.Client()),
 		)
 		r.PathPrefix(APIPath).Handler(ap)
 	case "event":
 		log.Infof("Registering API Event Handler at %s", APIPath)
 		rt := regRouter.NewRouter(
-			router2.WithOption(regOpt),
+			gwRouter.WithOption(gwOpt...),
 			router.WithHandler(event.Handler),
 			router.WithResolver(rr),
-			router.WithRegistry(service.Options().Registry),
+			router.WithRegistry(muregistry.DefaultRegistry),
 		)
 		ev := event.NewHandler(
-			ahandler.WithNamespace(apiNamespace),
+			ahandler.WithNamespace(Namespace),
 			ahandler.WithRouter(rt),
-			ahandler.WithClient(service.Client()),
+			ahandler.WithClient(srv.Client()),
 		)
 		r.PathPrefix(APIPath).Handler(ev)
 	case "http", "proxy":
 		log.Infof("Registering API HTTP Handler at %s", ProxyPath)
 		rt := regRouter.NewRouter(
-			router2.WithOption(regOpt),
+			gwRouter.WithOption(gwOpt...),
 			router.WithHandler(ahttp.Handler),
 			router.WithResolver(rr),
-			router.WithRegistry(service.Options().Registry),
+			router.WithRegistry(muregistry.DefaultRegistry),
 		)
 		ht := ahttp.NewHandler(
-			ahandler.WithNamespace(apiNamespace),
+			ahandler.WithNamespace(Namespace),
 			ahandler.WithRouter(rt),
-			ahandler.WithClient(service.Client()),
+			ahandler.WithClient(srv.Client()),
 		)
 		r.PathPrefix(ProxyPath).Handler(ht)
 	case "web":
 		log.Infof("Registering API Web Handler at %s", APIPath)
 		rt := regRouter.NewRouter(
-			router2.WithOption(regOpt),
+			gwRouter.WithOption(gwOpt...),
 			router.WithHandler(web.Handler),
 			router.WithResolver(rr),
-			router.WithRegistry(service.Options().Registry),
+			router.WithRegistry(muregistry.DefaultRegistry),
 		)
 		w := web.NewHandler(
-			ahandler.WithNamespace(apiNamespace),
+			ahandler.WithNamespace(Namespace),
 			ahandler.WithRouter(rt),
-			ahandler.WithClient(service.Client()),
+			ahandler.WithClient(srv.Client()),
 		)
 		r.PathPrefix(APIPath).Handler(w)
 	default:
 		log.Infof("Registering API Default Handler at %s", APIPath)
 		rt := regRouter.NewRouter(
-			router2.WithOption(regOpt),
+			gwRouter.WithOption(gwOpt...),
 			router.WithResolver(rr),
-			router.WithRegistry(service.Options().Registry),
+			router.WithRegistry(muregistry.DefaultRegistry),
 		)
-		r.PathPrefix(APIPath).Handler(handler.Meta(service, rt, nsResolver.Resolve))
-	}
-
-	// reverse wrap handler
-	plugins := append(Plugins(), plugin.Plugins()...)
-	for i := len(plugins); i > 0; i-- {
-		h = plugins[i-1].Handler()(h)
+		r.PathPrefix(APIPath).Handler(handler.Meta(srv, rt, Namespace))
 	}
 
 	// create the auth wrapper and the server
-	authWrapper := auth.Wrapper(rr, nsResolver)
+	authWrapper := auth.Wrapper(rr, Namespace)
 	api := httpapi.NewServer(Address, server.WrapHandler(authWrapper))
 
 	api.Init(opts...)
@@ -331,7 +297,7 @@ func run(ctx *cli.Context, regOpt router2.Option, srvOpts ...micro.Option) {
 	}
 
 	// Run server
-	if err := service.Run(); err != nil {
+	if err := srv.Run(); err != nil {
 		log.Fatal(err)
 	}
 
@@ -339,17 +305,19 @@ func run(ctx *cli.Context, regOpt router2.Option, srvOpts ...micro.Option) {
 	if err := api.Stop(); err != nil {
 		log.Fatal(err)
 	}
+
+	return nil
 }
 
-func Commands(opt router2.Option, options ...micro.Option) []*cli.Command {
-	command := &cli.Command{
+func Commands(opt ...gwRouter.Option) *cli.Command {
+	return &cli.Command{
 		Name:  "gateway",
 		Usage: "Run the api gateway",
 		Action: func(ctx *cli.Context) error {
-			run(ctx, opt, options...)
+			Run(ctx, opt...)
 			return nil
 		},
-		Flags: []cli.Flag{
+		Flags: append(client.Flags,
 			&cli.StringFlag{
 				Name:    "address",
 				Usage:   "Set the api address e.g 0.0.0.0:8080",
@@ -386,18 +354,6 @@ func Commands(opt router2.Option, options ...micro.Option) []*cli.Command {
 				EnvVars: []string{"MICRO_API_ENABLE_CORS"},
 				Value:   true,
 			},
-		},
+		),
 	}
-
-	for _, p := range Plugins() {
-		if cmds := p.Commands(); len(cmds) > 0 {
-			command.Subcommands = append(command.Subcommands, cmds...)
-		}
-
-		if flags := p.Flags(); len(flags) > 0 {
-			command.Flags = append(command.Flags, flags...)
-		}
-	}
-
-	return []*cli.Command{command}
 }

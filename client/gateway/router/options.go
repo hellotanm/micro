@@ -3,8 +3,7 @@ package router
 import (
 	"net/http"
 
-	"github.com/micro/go-micro/v2/api/router"
-	"github.com/micro/go-micro/v2/client/selector"
+	"github.com/micro/go-micro/v3/api/router"
 )
 
 type Options struct {
@@ -16,7 +15,7 @@ type Options struct {
 
 type Option func(o *Options)
 
-type Filter func(req *http.Request) selector.Filter
+type Filter func(req *http.Request) ServiceFilter
 
 func NewOptions(opts ...Option) Options {
 	options := Options{}
