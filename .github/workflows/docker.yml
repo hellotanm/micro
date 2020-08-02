@@ -4,6 +4,11 @@ on:
   push:
     branches:
       - master
+      # We want custom per developer branches to be pushed
+      - crufter
+    tags:
+      - v2.*
+      - v3.*
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -21,3 +26,4 @@ jobs:
         name: micro/micro
         username: ${{ secrets.DOCKER_USERNAME }}
         password: ${{ secrets.DOCKER_PASSWORD }}
+        tag_names: true

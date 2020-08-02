@@ -12,8 +12,12 @@ rules:
   - ""
   resources:
   - pods
+  - pods/log
   - services
+  - secrets
+  - namespaces
   verbs:
+  - get
   - create
   - update
   - delete
@@ -41,6 +45,19 @@ rules:
   - get
   - watch
   - list
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: micro-runtime
+subjects:
+- kind: ServiceAccount
+  name: micro-runtime
+  namespace: default
+roleRef:
+  kind: ClusterRole
+  name: micro-runtime
+  apiGroup: rbac.authorization.k8s.io
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -80,31 +97,64 @@ spec:
         name: micro-runtime
         micro: runtime
     spec:
+      serviceAccount: micro-runtime
       serviceAccountName: micro-runtime
       containers:
       - name: runtime
         env:
-        - name: MICRO_BROKER
-          value: "nats"
-        - name: MICRO_BROKER_ADDRESS
-          value: "nats-cluster"
-        - name: MICRO_REGISTRY
-          value: "etcd"
-        - name: MICRO_REGISTRY_ADDRESS
-          value: "etcd-cluster-client"
-        - name: MICRO_RUNTIME
-          value: "kubernetes"
-        - name: MICRO_RUNTIME_PROFILE
-          value: "platform"
-        - name: MICRO_AUTO_UPDATE
-          value: "true"
+        - name: MICRO_PROFILE
+          value: platform
+        - name: MICRO_PROXY
+          value: "micro-network.default.svc.cluster.local:8443"
+        - name: MICRO_AUTH_PUBLIC_KEY
+          valueFrom:
+            secretKeyRef:
+              name: micro-secrets
+              key: auth_public_key
+        - name: MICRO_AUTH_PRIVATE_KEY
+          valueFrom:
+            secretKeyRef:
+              name: micro-secrets
+              key: auth_private_key
+        - name: MICRO_BROKER_TLS_CA
+          value: "/certs/broker/ca.crt"
+        - name: MICRO_BROKER_TLS_CERT
+          value: "/certs/broker/cert.pem"
+        - name: MICRO_BROKER_TLS_KEY
+          value: "/certs/broker/key.pem"
+        - name: MICRO_REGISTRY_TLS_CA
+          value: "/certs/registry/ca.crt"
+        - name: MICRO_REGISTRY_TLS_CERT
+          value: "/certs/registry/cert.pem"
+        - name: MICRO_REGISTRY_TLS_KEY
+          value: "/certs/registry/key.pem"
         - name: MICRO_LOG_LEVEL
           value: "debug"
-        - name: MICRO_STORE
-          value: "cockroach"
         - name: MICRO_STORE_ADDRESS
-          value: "postgres://root@cockroachdb-public:26257/?sslmode=disable"
+          value: "postgresql://root@cockroachdb-cluster-public:26257?ssl=true&sslmode=require&sslrootcert=certs/store/ca.crt&sslkey=certs/store/key.pem&sslcert=certs/store/cert.pem"
         args:
+        - service
         - runtime
         image: micro/micro
         imagePullPolicy: Always
+        volumeMounts:
+        - name: etcd-client-certs
+          mountPath: "/certs/registry"
+          readOnly: true
+        - name: nats-client-certs
+          mountPath: "/certs/broker"
+          readOnly: true
+        - name: cockroachdb-client-certs
+          mountPath: "/certs/store"
+          readOnly: true
+      volumes:
+      - name: etcd-client-certs
+        secret:
+          secretName: etcd-client-certs
+      - name: nats-client-certs
+        secret:
+          secretName: nats-client-certs
+      - name: cockroachdb-client-certs
+        secret:
+          secretName: cockroachdb-client-certs
+          defaultMode: 0600
