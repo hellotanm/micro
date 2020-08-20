@@ -3,7 +3,6 @@ package cli
 
 import (
 	"bufio"
-	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -19,6 +18,8 @@ import (
 	"github.com/micro/micro/v3/cmd"
 	"github.com/micro/micro/v3/internal/report"
 	pb "github.com/micro/micro/v3/platform/proto/signup"
+	"github.com/micro/micro/v3/service/client"
+	"github.com/micro/micro/v3/service/context"
 	"golang.org/x/crypto/ssh/terminal"
 )
 
@@ -37,8 +38,8 @@ func Signup(ctx *cli.Context) error {
 	}
 
 	// send a verification email to the user
-	signupService := pb.NewSignupService("go.micro.service.signup")
-	_, err := signupService.SendVerificationEmail(context.TODO(), &pb.SendVerificationEmailRequest{
+	signupService := pb.NewSignupService("signup", client.DefaultClient)
+	_, err := signupService.SendVerificationEmail(context.DefaultContext, &pb.SendVerificationEmailRequest{
 		Email: email,
 	}, cl.WithRequestTimeout(10*time.Second))
 	if err != nil {
@@ -47,12 +48,12 @@ func Signup(ctx *cli.Context) error {
 		os.Exit(1)
 	}
 
-	fmt.Print("We have sent you an email with a one time password. Please enter here: ")
+	fmt.Print("Enter the OTP sent to your email address: ")
 	otp, _ := reader.ReadString('\n')
 	otp = strings.TrimSpace(otp)
 
 	// verify the email and password entered
-	rsp, err := signupService.Verify(context.TODO(), &pb.VerifyRequest{
+	rsp, err := signupService.Verify(context.DefaultContext, &pb.VerifyRequest{
 		Email: email,
 		Token: otp,
 	}, cl.WithRequestTimeout(10*time.Second))
@@ -91,13 +92,13 @@ func Signup(ctx *cli.Context) error {
 	password := ctx.String("password")
 	if len(password) == 0 {
 		for {
-			fmt.Print("Please enter your password: ")
+			fmt.Print("Enter a new password: ")
 			bytePw, _ := terminal.ReadPassword(int(syscall.Stdin))
 			pw := string(bytePw)
 			pw = strings.TrimSpace(pw)
 			fmt.Println()
 
-			fmt.Print("Please verify your password: ")
+			fmt.Print("Verify your password: ")
 			bytePwVer, _ := terminal.ReadPassword(int(syscall.Stdin))
 			pwVer := string(bytePwVer)
 			pwVer = strings.TrimSpace(pwVer)
@@ -112,12 +113,23 @@ func Signup(ctx *cli.Context) error {
 		}
 	}
 
-	fmt.Printf("Please go to https://m3o.com/subscribe?email=%s and paste the acquired payment method id here: ", email)
-	paymentMethodID, _ := reader.ReadString('\n')
-	paymentMethodID = strings.TrimSpace(paymentMethodID)
+	// payment method id read from user input
+	var paymentMethodID string
+
+	// print the message returned from the verification process
+	if len(rsp.Message) > 0 {
+		// print with space
+		fmt.Printf("\n%s\n", rsp.Message)
+	}
+
+	// payment required
+	if rsp.PaymentRequired {
+		paymentMethodID, _ = reader.ReadString('\n')
+		paymentMethodID = strings.TrimSpace(paymentMethodID)
+	}
 
 	// complete the signup flow
-	signupRsp, err := signupService.CompleteSignup(context.TODO(), &pb.CompleteSignupRequest{
+	signupRsp, err := signupService.CompleteSignup(context.DefaultContext, &pb.CompleteSignupRequest{
 		Email:           email,
 		Token:           otp,
 		PaymentMethodID: paymentMethodID,
@@ -154,7 +166,7 @@ func Signup(ctx *cli.Context) error {
 
 	// the user has now signed up and logged in
 	// @todo save the namespace from the last call and use that.
-	fmt.Println("Successfully logged in.")
+	fmt.Println("Signup complete! You're now logged in.")
 	report.Success(ctx, email)
 	return nil
 }

@@ -1,12 +1,13 @@
 package client
 
 import (
-	"context"
 	"net/http"
 
+	goclient "github.com/micro/go-micro/v3/client"
 	"github.com/micro/go-micro/v3/config/source"
 	"github.com/micro/micro/v3/service/client"
 	proto "github.com/micro/micro/v3/service/config/proto"
+	"github.com/micro/micro/v3/service/context"
 	"github.com/micro/micro/v3/service/errors"
 	"github.com/micro/micro/v3/service/logger"
 )
@@ -14,7 +15,7 @@ import (
 var (
 	defaultNamespace = "micro"
 	defaultPath      = ""
-	name             = "go.micro.config"
+	name             = "config"
 )
 
 type srv struct {
@@ -26,11 +27,10 @@ type srv struct {
 }
 
 func (m *srv) Read() (set *source.ChangeSet, err error) {
-	client := proto.NewConfigService(m.serviceName)
-	req, err := client.Read(context.Background(), &proto.ReadRequest{
+	req, err := m.client.Read(context.DefaultContext, &proto.ReadRequest{
 		Namespace: m.namespace,
 		Path:      m.path,
-	})
+	}, goclient.WithAuthToken())
 	if verr := errors.Parse(err); verr != nil && verr.Code == http.StatusNotFound {
 		return nil, nil
 	} else if err != nil {
@@ -41,11 +41,10 @@ func (m *srv) Read() (set *source.ChangeSet, err error) {
 }
 
 func (m *srv) Watch() (w source.Watcher, err error) {
-	client := proto.NewConfigService(m.serviceName)
-	stream, err := client.Watch(context.Background(), &proto.WatchRequest{
+	stream, err := m.client.Watch(context.DefaultContext, &proto.WatchRequest{
 		Namespace: m.namespace,
 		Path:      m.path,
-	})
+	}, goclient.WithAuthToken())
 	if err != nil {
 		if logger.V(logger.ErrorLevel, logger.DefaultLogger) {
 			logger.Error("watch err: ", err)
@@ -100,6 +99,7 @@ func NewSource(opts ...source.Option) source.Source {
 		opts:        options,
 		namespace:   namespace,
 		path:        path,
+		client:      proto.NewConfigService(addr, options.Client),
 	}
 
 	return s

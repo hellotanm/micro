@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -10,23 +9,26 @@ import (
 
 	"github.com/micro/cli/v2"
 	goauth "github.com/micro/go-micro/v3/auth"
+	goclient "github.com/micro/go-micro/v3/client"
 	"github.com/micro/micro/v3/client/cli/namespace"
 	"github.com/micro/micro/v3/client/cli/util"
 	"github.com/micro/micro/v3/service/auth"
 	pb "github.com/micro/micro/v3/service/auth/proto"
+	"github.com/micro/micro/v3/service/client"
+	"github.com/micro/micro/v3/service/context"
 )
 
 func listAccounts(ctx *cli.Context) error {
-	client := pb.NewAccountsService("go.micro.auth")
+	cli := pb.NewAccountsService("auth", client.DefaultClient)
 
 	ns, err := namespace.Get(util.GetEnv(ctx).Name)
 	if err != nil {
 		return fmt.Errorf("Error getting namespace: %v", err)
 	}
 
-	rsp, err := client.List(context.TODO(), &pb.ListAccountsRequest{
+	rsp, err := cli.List(context.DefaultContext, &pb.ListAccountsRequest{
 		Options: &pb.Options{Namespace: ns},
-	})
+	}, goclient.WithAuthToken())
 	if err != nil {
 		return fmt.Errorf("Error listing accounts: %v", err)
 	}
@@ -86,17 +88,17 @@ func deleteAccount(ctx *cli.Context) error {
 	if ctx.Args().Len() == 0 {
 		return fmt.Errorf("Missing argument: ID")
 	}
-	client := pb.NewAccountsService("go.micro.auth")
+	cli := pb.NewAccountsService("auth", client.DefaultClient)
 
 	ns, err := namespace.Get(util.GetEnv(ctx).Name)
 	if err != nil {
 		return fmt.Errorf("Error getting namespace: %v", err)
 	}
 
-	_, err = client.Delete(context.TODO(), &pb.DeleteAccountRequest{
+	_, err = cli.Delete(context.DefaultContext, &pb.DeleteAccountRequest{
 		Id:      ctx.Args().First(),
 		Options: &pb.Options{Namespace: ns},
-	})
+	}, goclient.WithAuthToken())
 	if err != nil {
 		return fmt.Errorf("Error deleting account: %v", err)
 	}

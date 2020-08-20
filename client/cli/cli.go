@@ -96,6 +96,10 @@ func init() {
 					Usage:   "A list of key-value pairs to be forwarded as metadata",
 					EnvVars: []string{"MICRO_METADATA"},
 				},
+				&cli.StringFlag{
+					Name:  "request_timeout",
+					Usage: "timeout duration",
+				},
 			},
 		},
 		&cli.Command{
@@ -149,7 +153,7 @@ func init() {
 		},
 		&cli.Command{
 			Name:   "services",
-			Usage:  "List micro services",
+			Usage:  "List services in the registry",
 			Action: util.Print(listServices),
 		},
 	)

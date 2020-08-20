@@ -21,16 +21,17 @@ import (
 	muruntime "github.com/micro/micro/v3/service/runtime"
 
 	// services
+	api "github.com/micro/micro/v3/service/api"
 	auth "github.com/micro/micro/v3/service/auth/server"
 	broker "github.com/micro/micro/v3/service/broker/server"
 	config "github.com/micro/micro/v3/service/config/server"
-	debug "github.com/micro/micro/v3/service/debug/server"
+	events "github.com/micro/micro/v3/service/events/server"
 	network "github.com/micro/micro/v3/service/network/server"
+	proxy "github.com/micro/micro/v3/service/proxy"
 	registry "github.com/micro/micro/v3/service/registry/server"
 	router "github.com/micro/micro/v3/service/router/server"
 	runtime "github.com/micro/micro/v3/service/runtime/server"
 	store "github.com/micro/micro/v3/service/store/server"
-	tunnel "github.com/micro/micro/v3/service/tunnel/server"
 
 	// misc commands
 	"github.com/micro/micro/v3/service/handler/exec"
@@ -143,6 +144,11 @@ type srvCommand struct {
 
 var srvCommands = []srvCommand{
 	{
+		Name:    "api",
+		Command: api.Run,
+		Flags:   api.Flags,
+	},
+	{
 		Name:    "auth",
 		Command: auth.Run,
 	},
@@ -156,9 +162,8 @@ var srvCommands = []srvCommand{
 		Flags:   config.Flags,
 	},
 	{
-		Name:    "debug",
-		Command: debug.Run,
-		Flags:   debug.Flags,
+		Name:    "events",
+		Command: events.Run,
 	},
 	{
 		Name:    "health",
@@ -169,6 +174,11 @@ var srvCommands = []srvCommand{
 		Name:    "network",
 		Command: network.Run,
 		Flags:   network.Flags,
+	},
+	{
+		Name:    "proxy",
+		Command: proxy.Run,
+		Flags:   proxy.Flags,
 	},
 	{
 		Name:    "registry",
@@ -187,11 +197,6 @@ var srvCommands = []srvCommand{
 	{
 		Name:    "store",
 		Command: store.Run,
-	},
-	{
-		Name:    "tunnel",
-		Command: tunnel.Run,
-		Flags:   tunnel.Flags,
 	},
 }
 

@@ -10,14 +10,13 @@ import (
 
 	"github.com/micro/cli/v2"
 	"github.com/micro/go-micro/v3/client"
-	debug "github.com/micro/go-micro/v3/debug/service/handler"
 	"github.com/micro/go-micro/v3/model"
 	"github.com/micro/go-micro/v3/server"
-	"github.com/micro/go-micro/v3/store"
 	signalutil "github.com/micro/go-micro/v3/util/signal"
 	"github.com/micro/micro/v3/cmd"
 	muclient "github.com/micro/micro/v3/service/client"
 	mudebug "github.com/micro/micro/v3/service/debug"
+	debug "github.com/micro/micro/v3/service/debug/handler"
 	"github.com/micro/micro/v3/service/logger"
 	mumodel "github.com/micro/micro/v3/service/model"
 	muserver "github.com/micro/micro/v3/service/server"
@@ -61,6 +60,9 @@ func New(opts ...Option) *Service {
 		if v := ctx.String("service_version"); len(v) > 0 {
 			opts = append([]Option{Version(v)}, opts...)
 		}
+		if a := ctx.String("service_address"); len(a) > 0 {
+			opts = append([]Option{Address(a)}, opts...)
+		}
 		return nil
 	}
 
@@ -80,6 +82,16 @@ func (s *Service) Name() string {
 // Version of the service
 func (s *Service) Version() string {
 	return s.opts.Version
+}
+
+// Handler registers a handler
+func (s *Service) Handle(v interface{}) error {
+	return s.Server().Handle(s.Server().NewHandler(v))
+}
+
+// Subscribe registers a subscriber
+func (s *Service) Subscribe(topic string, v interface{}) error {
+	return s.Server().Subscribe(s.Server().NewSubscriber(topic, v))
 }
 
 func (s *Service) Init(opts ...Option) {
@@ -109,9 +121,6 @@ func (s *Service) String() string {
 }
 
 func (s *Service) Start() error {
-	// set the store to use the service name as the table
-	store.DefaultStore.Init(store.Table(s.Name()))
-
 	for _, fn := range s.opts.BeforeStart {
 		if err := fn(); err != nil {
 			return err
@@ -161,9 +170,9 @@ func (s *Service) Run() error {
 	}
 
 	// register the debug handler
-	muserver.DefaultServer.Handle(
-		muserver.DefaultServer.NewHandler(
-			debug.NewHandler(muclient.DefaultClient),
+	s.Server().Handle(
+		s.Server().NewHandler(
+			debug.NewHandler(s.Client()),
 			server.InternalHandler(true),
 		),
 	)
@@ -200,13 +209,13 @@ func (s *Service) Run() error {
 	return s.Stop()
 }
 
-// RegisterHandler is syntactic sugar for registering a handler
-func RegisterHandler(h interface{}, opts ...server.HandlerOption) error {
+// Handle is syntactic sugar for registering a handler
+func Handle(h interface{}, opts ...server.HandlerOption) error {
 	return muserver.DefaultServer.Handle(muserver.DefaultServer.NewHandler(h, opts...))
 }
 
-// RegisterSubscriber is syntactic sugar for registering a subscriber
-func RegisterSubscriber(topic string, h interface{}, opts ...server.SubscriberOption) error {
+// Subscribe is syntactic sugar for registering a subscriber
+func Subscribe(topic string, h interface{}, opts ...server.SubscriberOption) error {
 	return muserver.DefaultServer.Subscribe(muserver.DefaultServer.NewSubscriber(topic, h, opts...))
 }
 

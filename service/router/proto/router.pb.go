@@ -24,32 +24,6 @@ var _ = math.Inf
 // proto package needs to be updated.
 const _ = proto.ProtoPackageIsVersion3 // please upgrade the proto package
 
-// AdvertType defines the type of advert
-type AdvertType int32
-
-const (
-	AdvertType_AdvertAnnounce AdvertType = 0
-	AdvertType_AdvertUpdate   AdvertType = 1
-)
-
-var AdvertType_name = map[int32]string{
-	0: "AdvertAnnounce",
-	1: "AdvertUpdate",
-}
-
-var AdvertType_value = map[string]int32{
-	"AdvertAnnounce": 0,
-	"AdvertUpdate":   1,
-}
-
-func (x AdvertType) String() string {
-	return proto.EnumName(AdvertType_name, int32(x))
-}
-
-func (AdvertType) EnumDescriptor() ([]byte, []int) {
-	return fileDescriptor_aec116918b8562e4, []int{0}
-}
-
 // EventType defines the type of event
 type EventType int32
 
@@ -76,7 +50,7 @@ func (x EventType) String() string {
 }
 
 func (EventType) EnumDescriptor() ([]byte, []int) {
-	return fileDescriptor_aec116918b8562e4, []int{1}
+	return fileDescriptor_aec116918b8562e4, []int{0}
 }
 
 // Empty request
@@ -375,115 +349,6 @@ func (m *WatchRequest) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_WatchRequest proto.InternalMessageInfo
 
-// Advert is router advertsement streamed by Watch
-type Advert struct {
-	// id of the advertising router
-	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	// type of advertisement
-	Type AdvertType `protobuf:"varint,2,opt,name=type,proto3,enum=go.micro.router.AdvertType" json:"type,omitempty"`
-	// unix timestamp of the advertisement
-	Timestamp int64 `protobuf:"varint,3,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
-	// TTL of the Advert
-	Ttl int64 `protobuf:"varint,4,opt,name=ttl,proto3" json:"ttl,omitempty"`
-	// events is a list of advertised events
-	Events               []*Event `protobuf:"bytes,5,rep,name=events,proto3" json:"events,omitempty"`
-	XXX_NoUnkeyedLiteral struct{} `json:"-"`
-	XXX_unrecognized     []byte   `json:"-"`
-	XXX_sizecache        int32    `json:"-"`
-}
-
-func (m *Advert) Reset()         { *m = Advert{} }
-func (m *Advert) String() string { return proto.CompactTextString(m) }
-func (*Advert) ProtoMessage()    {}
-func (*Advert) Descriptor() ([]byte, []int) {
-	return fileDescriptor_aec116918b8562e4, []int{8}
-}
-
-func (m *Advert) XXX_Unmarshal(b []byte) error {
-	return xxx_messageInfo_Advert.Unmarshal(m, b)
-}
-func (m *Advert) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	return xxx_messageInfo_Advert.Marshal(b, m, deterministic)
-}
-func (m *Advert) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_Advert.Merge(m, src)
-}
-func (m *Advert) XXX_Size() int {
-	return xxx_messageInfo_Advert.Size(m)
-}
-func (m *Advert) XXX_DiscardUnknown() {
-	xxx_messageInfo_Advert.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_Advert proto.InternalMessageInfo
-
-func (m *Advert) GetId() string {
-	if m != nil {
-		return m.Id
-	}
-	return ""
-}
-
-func (m *Advert) GetType() AdvertType {
-	if m != nil {
-		return m.Type
-	}
-	return AdvertType_AdvertAnnounce
-}
-
-func (m *Advert) GetTimestamp() int64 {
-	if m != nil {
-		return m.Timestamp
-	}
-	return 0
-}
-
-func (m *Advert) GetTtl() int64 {
-	if m != nil {
-		return m.Ttl
-	}
-	return 0
-}
-
-func (m *Advert) GetEvents() []*Event {
-	if m != nil {
-		return m.Events
-	}
-	return nil
-}
-
-// ProcessResponse is returned by Process
-type ProcessResponse struct {
-	XXX_NoUnkeyedLiteral struct{} `json:"-"`
-	XXX_unrecognized     []byte   `json:"-"`
-	XXX_sizecache        int32    `json:"-"`
-}
-
-func (m *ProcessResponse) Reset()         { *m = ProcessResponse{} }
-func (m *ProcessResponse) String() string { return proto.CompactTextString(m) }
-func (*ProcessResponse) ProtoMessage()    {}
-func (*ProcessResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_aec116918b8562e4, []int{9}
-}
-
-func (m *ProcessResponse) XXX_Unmarshal(b []byte) error {
-	return xxx_messageInfo_ProcessResponse.Unmarshal(m, b)
-}
-func (m *ProcessResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	return xxx_messageInfo_ProcessResponse.Marshal(b, m, deterministic)
-}
-func (m *ProcessResponse) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_ProcessResponse.Merge(m, src)
-}
-func (m *ProcessResponse) XXX_Size() int {
-	return xxx_messageInfo_ProcessResponse.Size(m)
-}
-func (m *ProcessResponse) XXX_DiscardUnknown() {
-	xxx_messageInfo_ProcessResponse.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_ProcessResponse proto.InternalMessageInfo
-
 // CreateResponse is returned by Create
 type CreateResponse struct {
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
@@ -495,7 +360,7 @@ func (m *CreateResponse) Reset()         { *m = CreateResponse{} }
 func (m *CreateResponse) String() string { return proto.CompactTextString(m) }
 func (*CreateResponse) ProtoMessage()    {}
 func (*CreateResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_aec116918b8562e4, []int{10}
+	return fileDescriptor_aec116918b8562e4, []int{8}
 }
 
 func (m *CreateResponse) XXX_Unmarshal(b []byte) error {
@@ -527,7 +392,7 @@ func (m *DeleteResponse) Reset()         { *m = DeleteResponse{} }
 func (m *DeleteResponse) String() string { return proto.CompactTextString(m) }
 func (*DeleteResponse) ProtoMessage()    {}
 func (*DeleteResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_aec116918b8562e4, []int{11}
+	return fileDescriptor_aec116918b8562e4, []int{9}
 }
 
 func (m *DeleteResponse) XXX_Unmarshal(b []byte) error {
@@ -559,7 +424,7 @@ func (m *UpdateResponse) Reset()         { *m = UpdateResponse{} }
 func (m *UpdateResponse) String() string { return proto.CompactTextString(m) }
 func (*UpdateResponse) ProtoMessage()    {}
 func (*UpdateResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_aec116918b8562e4, []int{12}
+	return fileDescriptor_aec116918b8562e4, []int{10}
 }
 
 func (m *UpdateResponse) XXX_Unmarshal(b []byte) error {
@@ -585,7 +450,7 @@ type Event struct {
 	// the unique event id
 	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	// type of event
-	Type EventType `protobuf:"varint,2,opt,name=type,proto3,enum=go.micro.router.EventType" json:"type,omitempty"`
+	Type EventType `protobuf:"varint,2,opt,name=type,proto3,enum=router.EventType" json:"type,omitempty"`
 	// unix timestamp of event
 	Timestamp int64 `protobuf:"varint,3,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
 	// service route
@@ -599,7 +464,7 @@ func (m *Event) Reset()         { *m = Event{} }
 func (m *Event) String() string { return proto.CompactTextString(m) }
 func (*Event) ProtoMessage()    {}
 func (*Event) Descriptor() ([]byte, []int) {
-	return fileDescriptor_aec116918b8562e4, []int{13}
+	return fileDescriptor_aec116918b8562e4, []int{11}
 }
 
 func (m *Event) XXX_Unmarshal(b []byte) error {
@@ -665,7 +530,7 @@ func (m *Query) Reset()         { *m = Query{} }
 func (m *Query) String() string { return proto.CompactTextString(m) }
 func (*Query) ProtoMessage()    {}
 func (*Query) Descriptor() ([]byte, []int) {
-	return fileDescriptor_aec116918b8562e4, []int{14}
+	return fileDescriptor_aec116918b8562e4, []int{12}
 }
 
 func (m *Query) XXX_Unmarshal(b []byte) error {
@@ -734,7 +599,7 @@ func (m *Route) Reset()         { *m = Route{} }
 func (m *Route) String() string { return proto.CompactTextString(m) }
 func (*Route) ProtoMessage()    {}
 func (*Route) Descriptor() ([]byte, []int) {
-	return fileDescriptor_aec116918b8562e4, []int{15}
+	return fileDescriptor_aec116918b8562e4, []int{13}
 }
 
 func (m *Route) XXX_Unmarshal(b []byte) error {
@@ -812,77 +677,66 @@ func (m *Route) GetMetadata() map[string]string {
 }
 
 func init() {
-	proto.RegisterEnum("go.micro.router.AdvertType", AdvertType_name, AdvertType_value)
-	proto.RegisterEnum("go.micro.router.EventType", EventType_name, EventType_value)
-	proto.RegisterType((*Request)(nil), "go.micro.router.Request")
-	proto.RegisterType((*Response)(nil), "go.micro.router.Response")
-	proto.RegisterType((*ListResponse)(nil), "go.micro.router.ListResponse")
-	proto.RegisterType((*LookupRequest)(nil), "go.micro.router.LookupRequest")
-	proto.RegisterType((*LookupResponse)(nil), "go.micro.router.LookupResponse")
-	proto.RegisterType((*QueryRequest)(nil), "go.micro.router.QueryRequest")
-	proto.RegisterType((*QueryResponse)(nil), "go.micro.router.QueryResponse")
-	proto.RegisterType((*WatchRequest)(nil), "go.micro.router.WatchRequest")
-	proto.RegisterType((*Advert)(nil), "go.micro.router.Advert")
-	proto.RegisterType((*ProcessResponse)(nil), "go.micro.router.ProcessResponse")
-	proto.RegisterType((*CreateResponse)(nil), "go.micro.router.CreateResponse")
-	proto.RegisterType((*DeleteResponse)(nil), "go.micro.router.DeleteResponse")
-	proto.RegisterType((*UpdateResponse)(nil), "go.micro.router.UpdateResponse")
-	proto.RegisterType((*Event)(nil), "go.micro.router.Event")
-	proto.RegisterType((*Query)(nil), "go.micro.router.Query")
-	proto.RegisterType((*Route)(nil), "go.micro.router.Route")
-	proto.RegisterMapType((map[string]string)(nil), "go.micro.router.Route.MetadataEntry")
+	proto.RegisterEnum("router.EventType", EventType_name, EventType_value)
+	proto.RegisterType((*Request)(nil), "router.Request")
+	proto.RegisterType((*Response)(nil), "router.Response")
+	proto.RegisterType((*ListResponse)(nil), "router.ListResponse")
+	proto.RegisterType((*LookupRequest)(nil), "router.LookupRequest")
+	proto.RegisterType((*LookupResponse)(nil), "router.LookupResponse")
+	proto.RegisterType((*QueryRequest)(nil), "router.QueryRequest")
+	proto.RegisterType((*QueryResponse)(nil), "router.QueryResponse")
+	proto.RegisterType((*WatchRequest)(nil), "router.WatchRequest")
+	proto.RegisterType((*CreateResponse)(nil), "router.CreateResponse")
+	proto.RegisterType((*DeleteResponse)(nil), "router.DeleteResponse")
+	proto.RegisterType((*UpdateResponse)(nil), "router.UpdateResponse")
+	proto.RegisterType((*Event)(nil), "router.Event")
+	proto.RegisterType((*Query)(nil), "router.Query")
+	proto.RegisterType((*Route)(nil), "router.Route")
+	proto.RegisterMapType((map[string]string)(nil), "router.Route.MetadataEntry")
 }
 
 func init() { proto.RegisterFile("service/router/proto/router.proto", fileDescriptor_aec116918b8562e4) }
 
 var fileDescriptor_aec116918b8562e4 = []byte{
-	// 724 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x9c, 0x55, 0xdb, 0x6e, 0xd3, 0x40,
-	0x10, 0xb5, 0x9d, 0x38, 0x69, 0x86, 0x34, 0x0d, 0x2b, 0x54, 0xac, 0x40, 0x4b, 0xb0, 0x78, 0xa8,
-	0xaa, 0xca, 0x41, 0xa9, 0x10, 0x88, 0x72, 0xe9, 0x85, 0x22, 0x24, 0x8a, 0x04, 0x56, 0x2b, 0x24,
-	0xde, 0x5c, 0x7b, 0xd4, 0x5a, 0x49, 0x6c, 0x77, 0xbd, 0x4e, 0x95, 0xef, 0xe0, 0x1b, 0x78, 0xe0,
-	0x95, 0x5f, 0xe2, 0x47, 0xd0, 0x5e, 0xdc, 0x26, 0x71, 0x5c, 0xd1, 0xbe, 0x24, 0x7b, 0xe6, 0x72,
-	0x76, 0x66, 0x76, 0x66, 0x0c, 0x4f, 0x53, 0xa4, 0xe3, 0xd0, 0xc7, 0x1e, 0x8d, 0x33, 0x86, 0xb4,
-	0x97, 0xd0, 0x98, 0xc5, 0x0a, 0x38, 0x02, 0x90, 0x95, 0xb3, 0xd8, 0x19, 0x85, 0x3e, 0x8d, 0x1d,
-	0x29, 0xb6, 0x1b, 0x50, 0x77, 0xf1, 0x22, 0xc3, 0x94, 0xd9, 0x00, 0x4b, 0x2e, 0xa6, 0x49, 0x1c,
-	0xa5, 0x68, 0xbf, 0x83, 0xe6, 0x51, 0x98, 0xb2, 0x1c, 0x13, 0x07, 0x6a, 0xc2, 0x21, 0xb5, 0xf4,
-	0x6e, 0x65, 0xe3, 0x5e, 0x7f, 0xd5, 0x99, 0x23, 0x72, 0x5c, 0xfe, 0xe7, 0x2a, 0x2b, 0xfb, 0x2d,
-	0x2c, 0x1f, 0xc5, 0xf1, 0x20, 0x4b, 0x14, 0x39, 0xd9, 0x02, 0xf3, 0x22, 0x43, 0x3a, 0xb1, 0xf4,
-	0xae, 0xbe, 0xd0, 0xff, 0x1b, 0xd7, 0xba, 0xd2, 0xc8, 0xde, 0x85, 0x56, 0xee, 0x7e, 0xc7, 0x00,
-	0xde, 0x40, 0x53, 0x32, 0xde, 0xe9, 0xfe, 0xf7, 0xb0, 0xac, 0xbc, 0xef, 0x78, 0x7d, 0x0b, 0x9a,
-	0xdf, 0x3d, 0xe6, 0x9f, 0xe7, 0xb5, 0xfd, 0xad, 0x43, 0x6d, 0x2f, 0x18, 0x23, 0x65, 0xa4, 0x05,
-	0x46, 0x18, 0x88, 0x30, 0x1a, 0xae, 0x11, 0x06, 0xa4, 0x07, 0x55, 0x36, 0x49, 0xd0, 0x32, 0xba,
-	0xfa, 0x46, 0xab, 0xff, 0xa8, 0x40, 0x2c, 0xdd, 0x8e, 0x27, 0x09, 0xba, 0xc2, 0x90, 0x3c, 0x86,
-	0x06, 0x0b, 0x47, 0x98, 0x32, 0x6f, 0x94, 0x58, 0x95, 0xae, 0xbe, 0x51, 0x71, 0xaf, 0x05, 0xa4,
-	0x0d, 0x15, 0xc6, 0x86, 0x56, 0x55, 0xc8, 0xf9, 0x91, 0xc7, 0x8e, 0x63, 0x8c, 0x58, 0x6a, 0x99,
-	0x25, 0xb1, 0x1f, 0x72, 0xb5, 0xab, 0xac, 0xec, 0xfb, 0xb0, 0xf2, 0x95, 0xc6, 0x3e, 0xa6, 0xe9,
-	0x55, 0x3b, 0xb4, 0xa1, 0x75, 0x40, 0xd1, 0x63, 0x38, 0x2d, 0xf9, 0x80, 0x43, 0x9c, 0x95, 0x9c,
-	0x24, 0xc1, 0xb4, 0xcd, 0x4f, 0x1d, 0x4c, 0x41, 0x5d, 0xc8, 0xd9, 0x99, 0xc9, 0xb9, 0xb3, 0x38,
-	0xa0, 0xff, 0x4e, 0x79, 0x0b, 0x4c, 0xe1, 0x27, 0x92, 0x2e, 0x7f, 0x1b, 0x69, 0x64, 0x9f, 0x80,
-	0x29, 0xde, 0x96, 0x58, 0x50, 0x57, 0x03, 0xa3, 0x22, 0xcb, 0x21, 0xd7, 0x9c, 0x79, 0x0c, 0x2f,
-	0xbd, 0x89, 0x88, 0xb0, 0xe1, 0xe6, 0x90, 0x6b, 0x22, 0x64, 0x97, 0x31, 0x1d, 0x88, 0x30, 0x1a,
-	0x6e, 0x0e, 0xed, 0x3f, 0x06, 0x98, 0xe2, 0x9e, 0x9b, 0x79, 0xbd, 0x20, 0xa0, 0x98, 0xa6, 0x39,
-	0xaf, 0x82, 0xd3, 0x37, 0x56, 0x4a, 0x6f, 0xac, 0xce, 0xdc, 0x48, 0x56, 0x55, 0x4f, 0x52, 0xcb,
-	0x14, 0x0a, 0x85, 0x08, 0x81, 0xea, 0x30, 0x8c, 0x06, 0x56, 0x4d, 0x48, 0xc5, 0x99, 0xdb, 0x8e,
-	0x90, 0xd1, 0xd0, 0xb7, 0xea, 0xa2, 0x7a, 0x0a, 0x91, 0x5d, 0x58, 0x1a, 0x21, 0xf3, 0x02, 0x8f,
-	0x79, 0xd6, 0x92, 0xe8, 0x8e, 0x67, 0x8b, 0xab, 0xe7, 0x7c, 0x51, 0x66, 0x87, 0x11, 0xa3, 0x13,
-	0xf7, 0xca, 0xab, 0xb3, 0x03, 0xcb, 0x33, 0x2a, 0xde, 0x80, 0x03, 0x9c, 0xa8, 0xd4, 0xf9, 0x91,
-	0x3c, 0x00, 0x73, 0xec, 0x0d, 0x33, 0x54, 0x49, 0x4b, 0xf0, 0xda, 0x78, 0xa5, 0x6f, 0xf6, 0x01,
-	0xae, 0xdb, 0x9b, 0x10, 0x68, 0x49, 0xb4, 0x17, 0x45, 0x71, 0x16, 0xf9, 0xd8, 0xd6, 0x48, 0x1b,
-	0x9a, 0x52, 0x26, 0x7b, 0xab, 0xad, 0x6f, 0xf6, 0xa0, 0x71, 0xd5, 0x1e, 0x04, 0xa0, 0x26, 0x1b,
-	0xb3, 0xad, 0xf1, 0xb3, 0x6c, 0xc9, 0xb6, 0xce, 0xcf, 0xca, 0xc1, 0xe8, 0xff, 0x32, 0xa0, 0xe6,
-	0xca, 0xd2, 0x7c, 0x86, 0x9a, 0xdc, 0x2b, 0x64, 0xbd, 0x90, 0xe6, 0xcc, 0xbe, 0xea, 0x3c, 0x29,
-	0xd5, 0xab, 0xe6, 0xd6, 0xc8, 0x3e, 0x98, 0x62, 0xc6, 0xc9, 0x5a, 0xc1, 0x76, 0x7a, 0xf6, 0x3b,
-	0x25, 0xf3, 0x66, 0x6b, 0xcf, 0x75, 0xb2, 0x0f, 0x0d, 0x99, 0x5e, 0x98, 0x22, 0xb1, 0x8a, 0xa5,
-	0x57, 0x14, 0x0f, 0x4b, 0xb6, 0x82, 0xe0, 0xf8, 0x08, 0x75, 0x35, 0xaf, 0xa4, 0xcc, 0xae, 0xd3,
-	0x2d, 0x28, 0xe6, 0x47, 0x5c, 0xeb, 0xff, 0x35, 0xc0, 0x3c, 0xf6, 0x4e, 0x87, 0x48, 0x0e, 0xf2,
-	0xaa, 0x92, 0x92, 0x59, 0x5a, 0x50, 0x9e, 0xb9, 0xfd, 0xa0, 0x71, 0x12, 0xf9, 0x1c, 0xb7, 0x20,
-	0x99, 0x5b, 0x29, 0x82, 0x44, 0xbe, 0xe3, 0x2d, 0x48, 0xe6, 0xb6, 0x90, 0x46, 0xf6, 0xa0, 0xca,
-	0x3f, 0x66, 0x37, 0xd4, 0xb7, 0xf8, 0x82, 0xd3, 0x5f, 0x3f, 0x5b, 0x23, 0x9f, 0xf2, 0xa5, 0xb1,
-	0x56, 0xf2, 0xe1, 0x50, 0x44, 0xeb, 0x65, 0xea, 0x9c, 0x69, 0xff, 0xe5, 0x8f, 0x17, 0x67, 0x21,
-	0x3b, 0xcf, 0x4e, 0x1d, 0x3f, 0x1e, 0xf5, 0x84, 0xa9, 0xfa, 0x1d, 0x6f, 0xf7, 0x16, 0x7d, 0xc0,
-	0x77, 0x24, 0x38, 0xad, 0x09, 0xb4, 0xfd, 0x2f, 0x00, 0x00, 0xff, 0xff, 0x21, 0xb2, 0xca, 0xa5,
-	0xe6, 0x07, 0x00, 0x00,
+	// 597 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x94, 0x54, 0x4d, 0x6f, 0xd3, 0x40,
+	0x10, 0xb5, 0x9d, 0xd8, 0xad, 0x87, 0xc6, 0x98, 0x55, 0x5b, 0x59, 0x85, 0x43, 0x30, 0xaa, 0x54,
+	0x71, 0x88, 0x4b, 0x4a, 0x1b, 0xa0, 0x37, 0xa0, 0xb7, 0x72, 0x60, 0xd5, 0x0a, 0x89, 0x9b, 0x13,
+	0x8f, 0x5a, 0x2b, 0x71, 0xec, 0xae, 0xd7, 0xa9, 0x7c, 0xe4, 0xc8, 0x4f, 0xe1, 0x5f, 0x22, 0xef,
+	0x47, 0x1a, 0x47, 0x04, 0x29, 0x97, 0x64, 0xdf, 0xcc, 0xbe, 0xf9, 0xf2, 0x9b, 0x85, 0xd7, 0x25,
+	0xb2, 0x45, 0x3a, 0xc1, 0x88, 0xe5, 0x15, 0x47, 0x16, 0x15, 0x2c, 0xe7, 0xb9, 0x02, 0x03, 0x01,
+	0x88, 0x23, 0x51, 0xe8, 0xc2, 0x0e, 0xc5, 0x87, 0x0a, 0x4b, 0x1e, 0x02, 0xec, 0x52, 0x2c, 0x8b,
+	0x7c, 0x5e, 0x62, 0x78, 0x0e, 0x7b, 0xd7, 0x69, 0xc9, 0x35, 0x26, 0xc7, 0x20, 0x09, 0x65, 0x60,
+	0xf6, 0x3b, 0x27, 0xcf, 0x86, 0xbd, 0x81, 0x8a, 0x46, 0x9b, 0x3f, 0xaa, 0x9c, 0xe1, 0x7b, 0xe8,
+	0x5d, 0xe7, 0xf9, 0xb4, 0x2a, 0x54, 0x4c, 0xf2, 0x06, 0xec, 0x87, 0x0a, 0x59, 0x1d, 0x98, 0x7d,
+	0x73, 0x95, 0xf6, 0xbd, 0x31, 0x52, 0xe9, 0x0b, 0x47, 0xe0, 0x69, 0xd6, 0x76, 0xe9, 0xce, 0x60,
+	0x4f, 0x06, 0xda, 0x26, 0xdb, 0x05, 0xf4, 0x14, 0x69, 0xbb, 0x64, 0x1e, 0xec, 0xfd, 0x88, 0xf9,
+	0xe4, 0x5e, 0x8f, 0xcb, 0x07, 0xef, 0x0b, 0xc3, 0x98, 0xe3, 0x72, 0x68, 0x3e, 0x78, 0x5f, 0x71,
+	0x86, 0x6d, 0xcb, 0x6d, 0x91, 0xac, 0xde, 0xf9, 0x65, 0x82, 0x7d, 0xb5, 0xc0, 0x39, 0x27, 0x1e,
+	0x58, 0x69, 0x22, 0x2a, 0x75, 0xa9, 0x95, 0x26, 0xe4, 0x18, 0xba, 0xbc, 0x2e, 0x30, 0xb0, 0xfa,
+	0xe6, 0x89, 0x37, 0x7c, 0xa1, 0x8b, 0x10, 0x97, 0x6f, 0xea, 0x02, 0xa9, 0x70, 0x93, 0x57, 0xe0,
+	0xf2, 0x34, 0xc3, 0x92, 0xc7, 0x59, 0x11, 0x74, 0xfa, 0xe6, 0x49, 0x87, 0x3e, 0x19, 0x9a, 0x09,
+	0x08, 0x5e, 0xd0, 0x6d, 0x4f, 0x40, 0xb6, 0x22, 0x7d, 0xe1, 0x2d, 0xd8, 0x62, 0x02, 0x24, 0x80,
+	0x1d, 0xa5, 0x14, 0x55, 0x87, 0x86, 0x8d, 0xe7, 0x2e, 0xe6, 0xf8, 0x18, 0xd7, 0xa2, 0x1e, 0x97,
+	0x6a, 0xd8, 0x78, 0xe6, 0xc8, 0x1f, 0x73, 0x36, 0x15, 0xd9, 0x5d, 0xaa, 0x61, 0xf8, 0xc7, 0x02,
+	0x5b, 0xe4, 0xf9, 0x7f, 0xdc, 0x38, 0x49, 0x18, 0x96, 0xa5, 0x8e, 0xab, 0xe0, 0x6a, 0xc6, 0xce,
+	0xc6, 0x8c, 0xdd, 0x56, 0x46, 0x72, 0xa8, 0xbe, 0x1c, 0x0b, 0x6c, 0xe1, 0x50, 0x88, 0x10, 0xe8,
+	0xce, 0xd2, 0xf9, 0x34, 0x70, 0x84, 0x55, 0x9c, 0x9b, 0xbb, 0x19, 0x72, 0x96, 0x4e, 0x82, 0x1d,
+	0x31, 0x34, 0x85, 0xc8, 0x08, 0x76, 0x33, 0xe4, 0x71, 0x12, 0xf3, 0x38, 0xd8, 0x15, 0xdf, 0xff,
+	0x65, 0x6b, 0x68, 0x83, 0x6f, 0xca, 0x7b, 0x35, 0xe7, 0xac, 0xa6, 0xcb, 0xcb, 0x47, 0x97, 0xd0,
+	0x6b, 0xb9, 0x88, 0x0f, 0x9d, 0x29, 0xd6, 0xaa, 0xe3, 0xe6, 0x48, 0xf6, 0xc1, 0x5e, 0xc4, 0xb3,
+	0x0a, 0x55, 0xaf, 0x12, 0x7c, 0xb2, 0x3e, 0x98, 0x6f, 0x23, 0x70, 0x97, 0x1f, 0x96, 0x00, 0x38,
+	0x52, 0x49, 0xbe, 0xd1, 0x9c, 0xa5, 0x86, 0x7c, 0xb3, 0x39, 0x4b, 0xf5, 0xf8, 0xd6, 0xb0, 0x02,
+	0x87, 0xca, 0xe6, 0x3e, 0x82, 0x23, 0xb7, 0x85, 0x1c, 0xe8, 0x42, 0x5b, 0x3b, 0x77, 0x74, 0xb8,
+	0x6e, 0x56, 0xd2, 0x33, 0xc8, 0x29, 0xd8, 0x42, 0xc2, 0x64, 0x5f, 0x5f, 0x59, 0x55, 0xf4, 0x51,
+	0xaf, 0xa5, 0xb9, 0xd0, 0x38, 0x35, 0x87, 0xbf, 0x2d, 0xb0, 0x6f, 0xe2, 0xf1, 0x0c, 0xc9, 0x3b,
+	0x5d, 0x24, 0x69, 0x8b, 0xea, 0x29, 0xdd, 0xda, 0x36, 0x18, 0x0d, 0x45, 0xf6, 0xb2, 0x91, 0xb2,
+	0xb6, 0x2e, 0x82, 0x22, 0x5b, 0xde, 0x48, 0x59, 0xdb, 0x27, 0x83, 0x44, 0xd0, 0x6d, 0x9e, 0x2a,
+	0xf2, 0x7c, 0x49, 0x50, 0xed, 0x2c, 0x9b, 0x5c, 0x7d, 0xc9, 0x42, 0x83, 0x5c, 0x68, 0xf9, 0xef,
+	0xb7, 0xdf, 0x07, 0x45, 0x3b, 0x58, 0xb3, 0x6a, 0xde, 0xe7, 0xd1, 0xcf, 0xf3, 0xbb, 0x94, 0xdf,
+	0x57, 0xe3, 0xc1, 0x24, 0xcf, 0xa2, 0x2c, 0x9d, 0xb0, 0x5c, 0xfd, 0x2e, 0xce, 0xa2, 0x7f, 0xbd,
+	0xb8, 0x97, 0x12, 0x8c, 0x1d, 0x81, 0xce, 0xfe, 0x06, 0x00, 0x00, 0xff, 0xff, 0x32, 0xcf, 0xaa,
+	0x8f, 0x97, 0x05, 0x00, 0x00,
 }
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -899,8 +753,6 @@ const _ = grpc.SupportPackageIsVersion4
 type RouterClient interface {
 	Lookup(ctx context.Context, in *LookupRequest, opts ...grpc.CallOption) (*LookupResponse, error)
 	Watch(ctx context.Context, in *WatchRequest, opts ...grpc.CallOption) (Router_WatchClient, error)
-	Advertise(ctx context.Context, in *Request, opts ...grpc.CallOption) (Router_AdvertiseClient, error)
-	Process(ctx context.Context, in *Advert, opts ...grpc.CallOption) (*ProcessResponse, error)
 }
 
 type routerClient struct {
@@ -913,7 +765,7 @@ func NewRouterClient(cc *grpc.ClientConn) RouterClient {
 
 func (c *routerClient) Lookup(ctx context.Context, in *LookupRequest, opts ...grpc.CallOption) (*LookupResponse, error) {
 	out := new(LookupResponse)
-	err := c.cc.Invoke(ctx, "/go.micro.router.Router/Lookup", in, out, opts...)
+	err := c.cc.Invoke(ctx, "/router.Router/Lookup", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -921,7 +773,7 @@ func (c *routerClient) Lookup(ctx context.Context, in *LookupRequest, opts ...gr
 }
 
 func (c *routerClient) Watch(ctx context.Context, in *WatchRequest, opts ...grpc.CallOption) (Router_WatchClient, error) {
-	stream, err := c.cc.NewStream(ctx, &_Router_serviceDesc.Streams[0], "/go.micro.router.Router/Watch", opts...)
+	stream, err := c.cc.NewStream(ctx, &_Router_serviceDesc.Streams[0], "/router.Router/Watch", opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -952,53 +804,10 @@ func (x *routerWatchClient) Recv() (*Event, error) {
 	return m, nil
 }
 
-func (c *routerClient) Advertise(ctx context.Context, in *Request, opts ...grpc.CallOption) (Router_AdvertiseClient, error) {
-	stream, err := c.cc.NewStream(ctx, &_Router_serviceDesc.Streams[1], "/go.micro.router.Router/Advertise", opts...)
-	if err != nil {
-		return nil, err
-	}
-	x := &routerAdvertiseClient{stream}
-	if err := x.ClientStream.SendMsg(in); err != nil {
-		return nil, err
-	}
-	if err := x.ClientStream.CloseSend(); err != nil {
-		return nil, err
-	}
-	return x, nil
-}
-
-type Router_AdvertiseClient interface {
-	Recv() (*Advert, error)
-	grpc.ClientStream
-}
-
-type routerAdvertiseClient struct {
-	grpc.ClientStream
-}
-
-func (x *routerAdvertiseClient) Recv() (*Advert, error) {
-	m := new(Advert)
-	if err := x.ClientStream.RecvMsg(m); err != nil {
-		return nil, err
-	}
-	return m, nil
-}
-
-func (c *routerClient) Process(ctx context.Context, in *Advert, opts ...grpc.CallOption) (*ProcessResponse, error) {
-	out := new(ProcessResponse)
-	err := c.cc.Invoke(ctx, "/go.micro.router.Router/Process", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 // RouterServer is the server API for Router service.
 type RouterServer interface {
 	Lookup(context.Context, *LookupRequest) (*LookupResponse, error)
 	Watch(*WatchRequest, Router_WatchServer) error
-	Advertise(*Request, Router_AdvertiseServer) error
-	Process(context.Context, *Advert) (*ProcessResponse, error)
 }
 
 // UnimplementedRouterServer can be embedded to have forward compatible implementations.
@@ -1010,12 +819,6 @@ func (*UnimplementedRouterServer) Lookup(ctx context.Context, req *LookupRequest
 }
 func (*UnimplementedRouterServer) Watch(req *WatchRequest, srv Router_WatchServer) error {
 	return status.Errorf(codes.Unimplemented, "method Watch not implemented")
-}
-func (*UnimplementedRouterServer) Advertise(req *Request, srv Router_AdvertiseServer) error {
-	return status.Errorf(codes.Unimplemented, "method Advertise not implemented")
-}
-func (*UnimplementedRouterServer) Process(ctx context.Context, req *Advert) (*ProcessResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method Process not implemented")
 }
 
 func RegisterRouterServer(s *grpc.Server, srv RouterServer) {
@@ -1032,7 +835,7 @@ func _Router_Lookup_Handler(srv interface{}, ctx context.Context, dec func(inter
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/go.micro.router.Router/Lookup",
+		FullMethod: "/router.Router/Lookup",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(RouterServer).Lookup(ctx, req.(*LookupRequest))
@@ -1061,67 +864,19 @@ func (x *routerWatchServer) Send(m *Event) error {
 	return x.ServerStream.SendMsg(m)
 }
 
-func _Router_Advertise_Handler(srv interface{}, stream grpc.ServerStream) error {
-	m := new(Request)
-	if err := stream.RecvMsg(m); err != nil {
-		return err
-	}
-	return srv.(RouterServer).Advertise(m, &routerAdvertiseServer{stream})
-}
-
-type Router_AdvertiseServer interface {
-	Send(*Advert) error
-	grpc.ServerStream
-}
-
-type routerAdvertiseServer struct {
-	grpc.ServerStream
-}
-
-func (x *routerAdvertiseServer) Send(m *Advert) error {
-	return x.ServerStream.SendMsg(m)
-}
-
-func _Router_Process_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(Advert)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(RouterServer).Process(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/go.micro.router.Router/Process",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(RouterServer).Process(ctx, req.(*Advert))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 var _Router_serviceDesc = grpc.ServiceDesc{
-	ServiceName: "go.micro.router.Router",
+	ServiceName: "router.Router",
 	HandlerType: (*RouterServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
 			MethodName: "Lookup",
 			Handler:    _Router_Lookup_Handler,
 		},
-		{
-			MethodName: "Process",
-			Handler:    _Router_Process_Handler,
-		},
 	},
 	Streams: []grpc.StreamDesc{
 		{
 			StreamName:    "Watch",
 			Handler:       _Router_Watch_Handler,
-			ServerStreams: true,
-		},
-		{
-			StreamName:    "Advertise",
-			Handler:       _Router_Advertise_Handler,
 			ServerStreams: true,
 		},
 	},
@@ -1149,7 +904,7 @@ func NewTableClient(cc *grpc.ClientConn) TableClient {
 
 func (c *tableClient) Create(ctx context.Context, in *Route, opts ...grpc.CallOption) (*CreateResponse, error) {
 	out := new(CreateResponse)
-	err := c.cc.Invoke(ctx, "/go.micro.router.Table/Create", in, out, opts...)
+	err := c.cc.Invoke(ctx, "/router.Table/Create", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1158,7 +913,7 @@ func (c *tableClient) Create(ctx context.Context, in *Route, opts ...grpc.CallOp
 
 func (c *tableClient) Delete(ctx context.Context, in *Route, opts ...grpc.CallOption) (*DeleteResponse, error) {
 	out := new(DeleteResponse)
-	err := c.cc.Invoke(ctx, "/go.micro.router.Table/Delete", in, out, opts...)
+	err := c.cc.Invoke(ctx, "/router.Table/Delete", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1167,7 +922,7 @@ func (c *tableClient) Delete(ctx context.Context, in *Route, opts ...grpc.CallOp
 
 func (c *tableClient) Update(ctx context.Context, in *Route, opts ...grpc.CallOption) (*UpdateResponse, error) {
 	out := new(UpdateResponse)
-	err := c.cc.Invoke(ctx, "/go.micro.router.Table/Update", in, out, opts...)
+	err := c.cc.Invoke(ctx, "/router.Table/Update", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1176,7 +931,7 @@ func (c *tableClient) Update(ctx context.Context, in *Route, opts ...grpc.CallOp
 
 func (c *tableClient) List(ctx context.Context, in *Request, opts ...grpc.CallOption) (*ListResponse, error) {
 	out := new(ListResponse)
-	err := c.cc.Invoke(ctx, "/go.micro.router.Table/List", in, out, opts...)
+	err := c.cc.Invoke(ctx, "/router.Table/List", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1185,7 +940,7 @@ func (c *tableClient) List(ctx context.Context, in *Request, opts ...grpc.CallOp
 
 func (c *tableClient) Query(ctx context.Context, in *QueryRequest, opts ...grpc.CallOption) (*QueryResponse, error) {
 	out := new(QueryResponse)
-	err := c.cc.Invoke(ctx, "/go.micro.router.Table/Query", in, out, opts...)
+	err := c.cc.Invoke(ctx, "/router.Table/Query", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1235,7 +990,7 @@ func _Table_Create_Handler(srv interface{}, ctx context.Context, dec func(interf
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/go.micro.router.Table/Create",
+		FullMethod: "/router.Table/Create",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(TableServer).Create(ctx, req.(*Route))
@@ -1253,7 +1008,7 @@ func _Table_Delete_Handler(srv interface{}, ctx context.Context, dec func(interf
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/go.micro.router.Table/Delete",
+		FullMethod: "/router.Table/Delete",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(TableServer).Delete(ctx, req.(*Route))
@@ -1271,7 +1026,7 @@ func _Table_Update_Handler(srv interface{}, ctx context.Context, dec func(interf
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/go.micro.router.Table/Update",
+		FullMethod: "/router.Table/Update",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(TableServer).Update(ctx, req.(*Route))
@@ -1289,7 +1044,7 @@ func _Table_List_Handler(srv interface{}, ctx context.Context, dec func(interfac
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/go.micro.router.Table/List",
+		FullMethod: "/router.Table/List",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(TableServer).List(ctx, req.(*Request))
@@ -1307,7 +1062,7 @@ func _Table_Query_Handler(srv interface{}, ctx context.Context, dec func(interfa
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/go.micro.router.Table/Query",
+		FullMethod: "/router.Table/Query",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(TableServer).Query(ctx, req.(*QueryRequest))
@@ -1316,7 +1071,7 @@ func _Table_Query_Handler(srv interface{}, ctx context.Context, dec func(interfa
 }
 
 var _Table_serviceDesc = grpc.ServiceDesc{
-	ServiceName: "go.micro.router.Table",
+	ServiceName: "router.Table",
 	HandlerType: (*TableServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{

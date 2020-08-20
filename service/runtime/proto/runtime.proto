@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package go.micro.runtime;
+package runtime;
 
 option go_package = "github.com/micro/micro/v3/service/runtime/proto;runtime";
 
@@ -23,13 +23,6 @@ message Service {
 	map<string,string> metadata = 4;
 }
 
-message Event {
-	string type = 1;
-	int64 timestamp = 2;
-	string service = 3;
-	string version = 4;
-}
-
 message CreateOptions {
 	// command to pass in
 	repeated string command = 1;
@@ -45,6 +38,8 @@ message CreateOptions {
 	string image = 6;
 	// namespace to create the service in
 	string namespace = 7;
+	// secrets to use for the service
+	map<string,string> secrets = 8;
 }
 
 message CreateRequest {

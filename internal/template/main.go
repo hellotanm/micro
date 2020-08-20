@@ -5,17 +5,25 @@ var (
 
 import (
 	"{{.Dir}}/handler"
-	{{dehyphen .Alias}} "{{.Dir}}/proto"
 
 	"github.com/micro/micro/v3/service"
+	"github.com/micro/micro/v3/service/logger"
 )
 
 func main() {
-	// Register Handler
-	{{dehyphen .Alias}}.Register{{title .Alias}}Handler(new(handler.{{title .Alias}}))
+	// Create service
+	srv := service.New(
+		service.Name("{{lower .Alias}}"),
+		service.Version("latest"),
+	)
+
+	// Register handler
+	srv.Handle(new(handler.{{title .Alias}}))
 
 	// Run service
-	service.Run()
+	if err := srv.Run(); err != nil {
+		logger.Fatal(err)
+	}
 }
 `
 )

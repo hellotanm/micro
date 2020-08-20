@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/micro/go-micro/v3/api/resolver"
+	"github.com/micro/go-micro/v3/registry"
 )
 
 // default resolver for legacy purposes
@@ -29,9 +30,24 @@ func (r *Resolver) Resolve(req *http.Request, opts ...resolver.ResolveOption) (*
 		name = proxyRoute(req.URL.Path)
 	}
 
+	// append the service prefix, e.g. foo.api
+	if len(r.opts.ServicePrefix) > 0 {
+		name = r.opts.ServicePrefix + "." + name
+	}
+
+	// check for the namespace in the request header, this can be set by the client or injected
+	// by the auth wrapper if an auth token was provided. The headr takes priority over any domain
+	// passed as a default
+	domain := options.Domain
+	if dom := req.Header.Get("Micro-Namespace"); len(dom) > 0 && dom != domain {
+		domain = dom
+	} else if len(domain) == 0 {
+		domain = registry.DefaultDomain
+	}
+
 	return &resolver.Endpoint{
-		Name:   r.opts.ServicePrefix + "." + name,
-		Domain: options.Domain,
+		Name:   name,
+		Domain: domain,
 		Method: method,
 	}, nil
 }

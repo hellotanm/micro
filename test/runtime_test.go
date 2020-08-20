@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io/ioutil"
-	"os/exec"
+	"os"
 	"regexp"
 	"strings"
 	"testing"
@@ -21,8 +21,9 @@ func ServerModeCall(t *T) {
 	t.Parallel()
 	serv := NewServer(t, WithLogin())
 
-	callCmd := exec.Command("micro", serv.EnvFlag(), "call", "go.micro.runtime", "Runtime.Read", "{}")
-	outp, err := callCmd.CombinedOutput()
+	cmd := serv.Command()
+
+	outp, err := cmd.Exec("call", "runtime", "Runtime.Read", "{}")
 	if err == nil {
 		t.Fatalf("Call to server should fail, got no error, output: %v", string(outp))
 		return
@@ -34,7 +35,7 @@ func ServerModeCall(t *T) {
 	}
 
 	if err := Try("Calling Runtime.Read", t, func() ([]byte, error) {
-		outp, err = exec.Command("micro", serv.EnvFlag(), "call", "go.micro.runtime", "Runtime.Read", "{}").CombinedOutput()
+		outp, err := cmd.Exec("call", "runtime", "Runtime.Read", "{}")
 		if err != nil {
 			return outp, errors.New("Call to runtime read should succeed")
 		}
@@ -56,23 +57,23 @@ func testRunLocalSource(t *T) {
 		return
 	}
 
-	runCmd := exec.Command("micro", serv.EnvFlag(), "run", "./service/example")
-	outp, err := runCmd.CombinedOutput()
+	cmd := serv.Command()
+
+	outp, err := cmd.Exec("run", "./service/example")
 	if err != nil {
 		t.Fatalf("micro run failure, output: %v", string(outp))
 		return
 	}
 
 	if err := Try("Find test/example", t, func() ([]byte, error) {
-		psCmd := exec.Command("micro", serv.EnvFlag(), "status")
-		outp, err = psCmd.CombinedOutput()
+		outp, err := cmd.Exec("status")
 		if err != nil {
 			return outp, err
 		}
 
 		// The started service should have the runtime name of "service/example",
 		// as the runtime name is the relative path inside a repo.
-		if !statusRunning("service/example", "latest", outp) {
+		if !statusRunning("example", "latest", outp) {
 			return outp, errors.New("Can't find example service in runtime")
 		}
 		return outp, err
@@ -81,7 +82,7 @@ func testRunLocalSource(t *T) {
 	}
 
 	if err := Try("Find example in list", t, func() ([]byte, error) {
-		outp, err := exec.Command("micro", serv.EnvFlag(), "services").CombinedOutput()
+		outp, err := cmd.Exec("services")
 		if err != nil {
 			return outp, err
 		}
@@ -106,23 +107,21 @@ func testRunAndKill(t *T) {
 		return
 	}
 
-	runCmd := exec.Command("micro", serv.EnvFlag(), "run", "./service/example")
-	outp, err := runCmd.CombinedOutput()
+	cmd := serv.Command()
+
+	outp, err := cmd.Exec("run", "./service/example")
 	if err != nil {
 		t.Fatalf("micro run failure, output: %v", string(outp))
 		return
 	}
 
 	if err := Try("Find test/example", t, func() ([]byte, error) {
-		psCmd := exec.Command("micro", serv.EnvFlag(), "status")
-		outp, err = psCmd.CombinedOutput()
+		outp, err = cmd.Exec("status")
 		if err != nil {
 			return outp, err
 		}
 
-		// The started service should have the runtime name of "service/example",
-		// as the runtime name is the relative path inside a repo.
-		if !statusRunning("service/example", "latest", outp) {
+		if !statusRunning("example", "latest", outp) {
 			return outp, errors.New("Can't find example service in runtime")
 		}
 		return outp, err
@@ -131,7 +130,7 @@ func testRunAndKill(t *T) {
 	}
 
 	if err := Try("Find example in list", t, func() ([]byte, error) {
-		outp, err := exec.Command("micro", serv.EnvFlag(), "services").CombinedOutput()
+		outp, err := cmd.Exec("services")
 		if err != nil {
 			return outp, err
 		}
@@ -143,15 +142,14 @@ func testRunAndKill(t *T) {
 		return
 	}
 
-	outp, err = exec.Command("micro", serv.EnvFlag(), "kill", "service/example").CombinedOutput()
+	outp, err = cmd.Exec("kill", "service/example")
 	if err != nil {
 		t.Fatalf("micro kill failure, output: %v", string(outp))
 		return
 	}
 
 	if err := Try("Find test/example", t, func() ([]byte, error) {
-		psCmd := exec.Command("micro", serv.EnvFlag(), "status")
-		outp, err = psCmd.CombinedOutput()
+		outp, err = cmd.Exec("status")
 		if err != nil {
 			return outp, err
 		}
@@ -167,7 +165,7 @@ func testRunAndKill(t *T) {
 	}
 
 	if err := Try("Find example in list", t, func() ([]byte, error) {
-		outp, err := exec.Command("micro", serv.EnvFlag(), "services").CombinedOutput()
+		outp, err := cmd.Exec("services")
 		if err != nil {
 			return outp, err
 		}
@@ -191,46 +189,56 @@ func TestRunGithubSource(t *testing.T) {
 
 func testRunGithubSource(t *T) {
 	t.Parallel()
-	p, err := exec.LookPath("git")
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
-	if len(p) == 0 {
-		t.Fatal("Git is not available")
-		return
-	}
+
 	serv := NewServer(t, WithLogin())
 	defer serv.Close()
 	if err := serv.Run(); err != nil {
 		return
 	}
 
-	runCmd := exec.Command("micro", serv.EnvFlag(), "run", "github.com/micro/services/helloworld@master")
-	outp, err := runCmd.CombinedOutput()
+	cmd := serv.Command()
+
+	outp, err := cmd.Exec("run", "github.com/micro/services/helloworld@master")
 	if err != nil {
 		t.Fatalf("micro run failure, output: %v", string(outp))
 		return
 	}
 
-	if err := Try("Find hello world", t, func() ([]byte, error) {
-		psCmd := exec.Command("micro", serv.EnvFlag(), "status")
-		outp, err = psCmd.CombinedOutput()
+	if err := Try("Find helloworld in runtime", t, func() ([]byte, error) {
+		outp, err = cmd.Exec("status")
 		if err != nil {
 			return outp, err
 		}
 
 		if !statusRunning("helloworld", "master", outp) {
-			return outp, errors.New("Output should contain hello world")
+			return outp, errors.New("Output should contain helloworld")
+		}
+		if !strings.Contains(string(outp), "owner=admin") || !(strings.Contains(string(outp), "group=micro") || strings.Contains(string(outp), "group="+serv.Env())) {
+			return outp, errors.New("micro status does not have correct owner or group")
+		}
+		if strings.Contains(string(outp), "unknown") {
+			return outp, errors.New("there should be no unknown in the micro status output")
 		}
 		return outp, nil
 	}, 60*time.Second); err != nil {
 		return
 	}
 
-	if err := Try("Call hello world", t, func() ([]byte, error) {
-		callCmd := exec.Command("micro", serv.EnvFlag(), "call", "helloworld", "Helloworld.Call", `{"name": "Joe"}`)
-		outp, err := callCmd.CombinedOutput()
+	if err := Try("Find helloworld in registry", t, func() ([]byte, error) {
+		outp, err = cmd.Exec("services")
+		if err != nil {
+			return outp, err
+		}
+		if !strings.Contains(string(outp), "helloworld") {
+			return outp, errors.New("helloworld is not running")
+		}
+		return outp, nil
+	}, 180*time.Second); err != nil {
+		return
+	}
+
+	if err := Try("Call helloworld", t, func() ([]byte, error) {
+		outp, err := cmd.Exec("call", "helloworld", "Helloworld.Call", "{\"name\":\"John\"}")
 		if err != nil {
 			return outp, err
 		}
@@ -239,7 +247,7 @@ func testRunGithubSource(t *T) {
 		if err != nil {
 			return outp, err
 		}
-		if rsp["msg"] != "Hello Joe" {
+		if rsp["msg"] != "Hello John" {
 			return outp, errors.New("Helloworld resonse is unexpected")
 		}
 		return outp, err
@@ -247,6 +255,164 @@ func testRunGithubSource(t *T) {
 		return
 	}
 
+}
+
+// Note: @todo this method should truly be the same as TestGithubSource.
+func TestRunGitlabSource(t *testing.T) {
+	TrySuite(t, testRunGitlabSource, retryCount)
+}
+
+func testRunGitlabSource(t *T) {
+	t.Parallel()
+
+	serv := NewServer(t, WithLogin())
+	defer serv.Close()
+	if err := serv.Run(); err != nil {
+		return
+	}
+
+	cmd := serv.Command()
+	cmd.Exec("user", "config", "set", "git."+serv.Env()+".baseurl", "gitlab.com/micro-test")
+
+	outp, err := cmd.Exec("run", "basic-micro-service")
+	if err != nil {
+		t.Fatalf("micro run failure, output: %v", string(outp))
+		return
+	}
+
+	if err := Try("Find helloworld in runtime", t, func() ([]byte, error) {
+		outp, err = cmd.Exec("status")
+		if err != nil {
+			return outp, err
+		}
+
+		if !statusRunning("basic-micro-service", "latest", outp) {
+			return outp, errors.New("Output should contain basic-micro-service")
+		}
+		return outp, nil
+	}, 60*time.Second); err != nil {
+		return
+	}
+
+	if err := Try("Find helloworld in registry", t, func() ([]byte, error) {
+		outp, err := cmd.Exec("services")
+		if err != nil {
+			return outp, err
+		}
+		if !strings.Contains(string(outp), "example") {
+			return outp, errors.New("Does not example")
+		}
+		return outp, err
+	}, 120*time.Second); err != nil {
+		outp, _ := cmd.Exec("logs", "basic-micro-serviced")
+		t.Log(string(outp))
+		return
+	}
+}
+
+func TestRunGitlabSourceMonoRepo(t *testing.T) {
+	TrySuite(t, testRunGitlabSourceMonoRepo, retryCount)
+}
+
+func testRunGitlabSourceMonoRepo(t *T) {
+	t.Parallel()
+
+	serv := NewServer(t, WithLogin())
+	defer serv.Close()
+	if err := serv.Run(); err != nil {
+		return
+	}
+
+	cmd := serv.Command()
+	cmd.Exec("user", "config", "set", "git."+serv.Env()+".baseurl", "gitlab.com/micro-test/monorepo-test")
+
+	outp, err := cmd.Exec("run", "subfolder-test")
+	if err != nil {
+		t.Fatalf("micro run failure, output: %v", string(outp))
+		return
+	}
+
+	if err := Try("Find helloworld in runtime", t, func() ([]byte, error) {
+		outp, err = cmd.Exec("status")
+		if err != nil {
+			return outp, err
+		}
+
+		if !statusRunning("subfolder-test", "latest", outp) {
+			return outp, errors.New("Output should contain subfolder-test")
+		}
+		return outp, nil
+	}, 60*time.Second); err != nil {
+		return
+	}
+
+	if err := Try("Find helloworld in registry", t, func() ([]byte, error) {
+		outp, err := cmd.Exec("services")
+		if err != nil {
+			return outp, err
+		}
+		if !strings.Contains(string(outp), "example") {
+			return outp, errors.New("Does not contain example")
+		}
+		return outp, err
+	}, 120*time.Second); err != nil {
+		outp, _ := cmd.Exec("logs", "subfolder-test")
+		t.Log(string(outp))
+		return
+	}
+}
+
+// This test exists to test the path of "generic git checkout", not just bitbucket
+func TestRunGenericRemote(t *testing.T) {
+	TrySuite(t, testRunGenericRemote, retryCount)
+}
+
+func testRunGenericRemote(t *T) {
+	t.Parallel()
+
+	serv := NewServer(t, WithLogin())
+	defer serv.Close()
+	if err := serv.Run(); err != nil {
+		return
+	}
+
+	cmd := serv.Command()
+	cmd.Exec("user", "config", "set", "git."+serv.Env()+".baseurl", "bitbucket.org/micro-test/monorepo-test")
+
+	outp, err := cmd.Exec("run", "subfolder-test")
+	if err != nil {
+		t.Fatalf("micro run failure, output: %v", string(outp))
+		return
+	}
+
+	if err := Try("Find helloworld in runtime", t, func() ([]byte, error) {
+		outp, err = cmd.Exec("status")
+		if err != nil {
+			return outp, err
+		}
+
+		if !statusRunning("subfolder-test", "latest", outp) {
+			return outp, errors.New("Output should contain subfolder-test")
+		}
+		return outp, nil
+	}, 60*time.Second); err != nil {
+		return
+	}
+
+	if err := Try("Find helloworld in registry", t, func() ([]byte, error) {
+		outp, err := cmd.Exec("services")
+		if err != nil {
+			return outp, err
+		}
+		if !strings.Contains(string(outp), "example") {
+			return outp, errors.New("Does not contain example")
+		}
+		return outp, err
+	}, 120*time.Second); err != nil {
+		outp, _ := cmd.Exec("logs", "subfolder-test")
+		t.Log(string(outp))
+		return
+	}
 }
 
 func TestRunLocalUpdateAndCall(t *testing.T) {
@@ -261,24 +427,23 @@ func testRunLocalUpdateAndCall(t *T) {
 		return
 	}
 
+	cmd := serv.Command()
+
 	// Run the example service
-	runCmd := exec.Command("micro", serv.EnvFlag(), "run", "./service/example")
-	outp, err := runCmd.CombinedOutput()
+	outp, err := cmd.Exec("run", "./service/example")
 	if err != nil {
 		t.Fatalf("micro run failure, output: %v", string(outp))
 		return
 	}
 
 	if err := Try("Finding example service with micro status", t, func() ([]byte, error) {
-		psCmd := exec.Command("micro", serv.EnvFlag(), "status")
-		outp, err = psCmd.CombinedOutput()
+		outp, err = cmd.Exec("status")
 		if err != nil {
 			return outp, err
 		}
 
-		// The started service should have the runtime name of "service/example",
-		// as the runtime name is the relative path inside a repo.
-		if !statusRunning("service/example", "latest", outp) {
+		// The started service should have the runtime name of "example".
+		if !statusRunning("example", "latest", outp) {
 			return outp, errors.New("can't find service in runtime")
 		}
 		return outp, err
@@ -287,8 +452,7 @@ func testRunLocalUpdateAndCall(t *T) {
 	}
 
 	if err := Try("Call example service", t, func() ([]byte, error) {
-		callCmd := exec.Command("micro", serv.EnvFlag(), "call", "example", "Example.Call", `{"name": "Joe"}`)
-		outp, err := callCmd.CombinedOutput()
+		outp, err := cmd.Exec("call", "example", "Example.Call", `{"name": "Joe"}`)
 		if err != nil {
 			return outp, err
 		}
@@ -311,16 +475,14 @@ func testRunLocalUpdateAndCall(t *T) {
 		replaceStringInFile(t, "./service/example/handler/handler.go", "Hi", "Hello")
 	}()
 
-	updateCmd := exec.Command("micro", serv.EnvFlag(), "update", "./service/example")
-	outp, err = updateCmd.CombinedOutput()
+	outp, err = cmd.Exec("update", "./service/example")
 	if err != nil {
 		t.Fatal(err)
 		return
 	}
 
 	if err := Try("Call example service after modification", t, func() ([]byte, error) {
-		callCmd := exec.Command("micro", serv.EnvFlag(), "call", "example", "Example.Call", `{"name": "Joe"}`)
-		outp, err = callCmd.CombinedOutput()
+		outp, err := cmd.Exec("call", "example", "Example.Call", `{"name": "Joe"}`)
 		if err != nil {
 			return outp, err
 		}
@@ -350,16 +512,16 @@ func testExistingLogs(t *T) {
 		return
 	}
 
-	runCmd := exec.Command("micro", serv.EnvFlag(), "run", "./service/logger")
-	outp, err := runCmd.CombinedOutput()
+	cmd := serv.Command()
+
+	outp, err := cmd.Exec("run", "./service/logger")
 	if err != nil {
 		t.Fatalf("micro run failure, output: %v", string(outp))
 		return
 	}
 
 	if err := Try("logger logs", t, func() ([]byte, error) {
-		psCmd := exec.Command("micro", serv.EnvFlag(), "logs", "test/service/logger")
-		outp, err = psCmd.CombinedOutput()
+		outp, err = cmd.Exec("logs", "logger")
 		if err != nil {
 			return outp, err
 		}
@@ -385,16 +547,16 @@ func testBranchCheckout(t *T) {
 		return
 	}
 
-	runCmd := exec.Command("micro", serv.EnvFlag(), "run", "github.com/micro/micro/test/service/logger@master")
-	outp, err := runCmd.CombinedOutput()
+	cmd := serv.Command()
+
+	outp, err := cmd.Exec("run", "github.com/micro/micro/test/service/logger@master")
 	if err != nil {
 		t.Fatalf("micro run failure, output: %v", string(outp))
 		return
 	}
 
 	if err := Try("logger logs", t, func() ([]byte, error) {
-		psCmd := exec.Command("micro", serv.EnvFlag(), "logs", "micro/micro/test/service/logger")
-		outp, err = psCmd.CombinedOutput()
+		outp, err = cmd.Exec("logs", "logger")
 		if err != nil {
 			return outp, err
 		}
@@ -421,16 +583,16 @@ func testStreamLogsAndThirdPartyRepo(t *T) {
 		return
 	}
 
-	runCmd := exec.Command("micro", serv.EnvFlag(), "run", "github.com/micro/micro/test/service/logger")
-	outp, err := runCmd.CombinedOutput()
+	cmd := serv.Command()
+
+	outp, err := cmd.Exec("run", "github.com/micro/micro/test/service/logger")
 	if err != nil {
 		t.Fatalf("micro run failure, output: %v", string(outp))
 		return
 	}
 
 	if err := Try("logger logs", t, func() ([]byte, error) {
-		psCmd := exec.Command("micro", serv.EnvFlag(), "logs", "micro/micro/test/service/logger")
-		outp, err = psCmd.CombinedOutput()
+		outp, err = cmd.Exec("logs", "logger")
 		if err != nil {
 			return outp, err
 		}
@@ -443,13 +605,12 @@ func testStreamLogsAndThirdPartyRepo(t *T) {
 		return
 	}
 
-	// Test streaming logs
-	cmd := exec.Command("micro", serv.EnvFlag(), "logs", "-n", "1", "-f", "micro/micro/test/service/logger")
+	cmd.Start("logs", "-n", "1", "-f", "logger")
 
 	time.Sleep(7 * time.Second)
 
 	go func() {
-		outp, err := cmd.CombinedOutput()
+		outp, err := cmd.Output()
 		if err != nil {
 			t.Log(err)
 		}
@@ -475,11 +636,11 @@ func testStreamLogsAndThirdPartyRepo(t *T) {
 
 	time.Sleep(7 * time.Second)
 
-	err = cmd.Process.Kill()
-	if err != nil {
+	if err := cmd.Stop(); err != nil {
 		t.Fatal(err)
 		return
 	}
+
 	time.Sleep(2 * time.Second)
 }
 
@@ -510,24 +671,328 @@ func testParentDependency(t *T) {
 		return
 	}
 
-	runCmd := exec.Command("micro", serv.EnvFlag(), "run", "./dep-test/dep-test-service")
-	outp, err := runCmd.CombinedOutput()
+	cmd := serv.Command()
+
+	outp, err := cmd.Exec("run", "./dep-test/dep-test-service")
 	if err != nil {
 		t.Fatalf("micro run failure, output: %v", string(outp))
 		return
 	}
 
-	if err := Try("Find hello world", t, func() ([]byte, error) {
-		psCmd := exec.Command("micro", serv.EnvFlag(), "status")
-		outp, err = psCmd.CombinedOutput()
+	if err := Try("Find dep-test-service", t, func() ([]byte, error) {
+		outp, err := cmd.Exec("status")
 		if err != nil {
 			return outp, err
 		}
 
 		if !statusRunning("dep-test-service", "latest", outp) {
-			return outp, errors.New("Output should contain hello world")
+			return outp, errors.New("Output should contain dep-test-service")
 		}
 		return outp, nil
+	}, 30*time.Second); err != nil {
+		return
+	}
+}
+
+func TestRunPrivateSource(t *testing.T) {
+	TrySuite(t, testRunPrivateSource, retryCount)
+}
+
+func testRunPrivateSource(t *T) {
+	t.Parallel()
+	serv := NewServer(t, WithLogin())
+	defer serv.Close()
+	if err := serv.Run(); err != nil {
+		return
+	}
+
+	cmd := serv.Command()
+
+	// get the git credentials, injected by the k8s integration test
+	pat := os.Getenv("GITHUB_PAT")
+	if len(pat) == 0 {
+		t.Logf("Skipping test, missing GITHUB_PAT")
+		return
+	}
+
+	// set the pat in the users config
+	if outp, err := cmd.Exec("user", "config", "set", "git.github.credentials", pat); err != nil {
+		t.Fatalf("Expected no error, got %v %v", err, string(outp))
+		return
+	}
+
+	// run the service
+	if outp, err := cmd.Exec("run", "--image", "localhost:5000/cells:go", "github.com/micro/test/helloworld"); err != nil {
+		t.Fatalf("Expected no run error, got %v %v", err, string(outp))
+		return
+	}
+
+	if err := Try("Find micro/test/helloworld in runtime", t, func() ([]byte, error) {
+		outp, err := cmd.Exec("status")
+		if err != nil {
+			return outp, err
+		}
+
+		if !statusRunning("helloworld", "latest", outp) {
+			return outp, errors.New("Can't find helloworld service in runtime")
+		}
+		return outp, err
+	}, 60*time.Second); err != nil {
+		return
+	}
+
+	if err := Try("Find helloworld in registry", t, func() ([]byte, error) {
+		outp, err := cmd.Exec("services")
+		if err != nil {
+			return outp, err
+		}
+		if !strings.Contains(string(outp), "helloworld") {
+			return outp, errors.New("Does not contain helloworld")
+		}
+		return outp, err
+	}, 300*time.Second); err != nil {
+		outp, _ := cmd.Exec("logs", "helloworld")
+		t.Log(string(outp))
+		return
+	}
+
+	// call the service
+	if err := Try("Calling helloworld", t, func() ([]byte, error) {
+		return cmd.Exec("helloworld", "--name=John")
+	}, 30*time.Second); err != nil {
+		return
+	}
+}
+
+func TestRunPrivateGitlabSource(t *testing.T) {
+	TrySuite(t, testRunPrivateGitlabSource, retryCount)
+}
+
+func testRunPrivateGitlabSource(t *T) {
+	t.Parallel()
+	serv := NewServer(t, WithLogin())
+	defer serv.Close()
+	if err := serv.Run(); err != nil {
+		return
+	}
+
+	cmd := serv.Command()
+
+	// get the git credentials, injected by the k8s integration test
+	pat := os.Getenv("GITLAB_PAT")
+	if len(pat) == 0 {
+		t.Logf("Skipping test, missing GITLAB_PAT")
+		return
+	}
+
+	// set the pat in the users config
+	if outp, err := cmd.Exec("user", "config", "set", "git.gitlab.credentials", pat); err != nil {
+		t.Fatalf("Expected no error, got %v %v", err, string(outp))
+		return
+	}
+
+	// run the service
+	if outp, err := cmd.Exec("run", "--image", "localhost:5000/cells:go", "gitlab.com/micro-test/private-monorepo-test/subfolder-test"); err != nil {
+		t.Fatalf("Expected no error, got %v %v", err, string(outp))
+		return
+	}
+
+	if err := Try("Find micro/test/helloworld in runtime", t, func() ([]byte, error) {
+		outp, err := cmd.Exec("status")
+		if err != nil {
+			return outp, err
+		}
+
+		if !statusRunning("subfolder-test", "latest", outp) {
+			return outp, errors.New("Can't find helloworld service in runtime")
+		}
+		return outp, err
+	}, 60*time.Second); err != nil {
+		return
+	}
+
+	if err := Try("Find helloworld in registry", t, func() ([]byte, error) {
+		outp, err := cmd.Exec("services")
+		if err != nil {
+			return outp, err
+		}
+		if !strings.Contains(string(outp), "example") {
+			return outp, errors.New("Does not contain example")
+		}
+		return outp, err
+	}, 300*time.Second); err != nil {
+		outp, _ := cmd.Exec("logs", "subfolder-test")
+		t.Log(string(outp))
+		return
+	}
+
+	// call the service
+	if err := Try("Calling example", t, func() ([]byte, error) {
+		return cmd.Exec("example", "--name=John")
+	}, 30*time.Second); err != nil {
+		return
+	}
+
+	// update service
+
+	// run the service
+	if outp, err := cmd.Exec("run", "--image", "localhost:5000/cells:go", "gitlab.com/micro-test/private-monorepo-test/subfolder-test"); err != nil {
+		t.Fatalf("Expected no error, got %v %v", err, string(outp))
+		return
+	}
+
+	// We need a better way of knowing the server restarted than a sleep...
+	time.Sleep(5 * time.Second)
+
+	if err := Try("Find micro/test/helloworld in runtime", t, func() ([]byte, error) {
+		outp, err := cmd.Exec("status")
+		if err != nil {
+			return outp, err
+		}
+
+		if !statusRunning("subfolder-test", "latest", outp) {
+			return outp, errors.New("Can't find helloworld service in runtime")
+		}
+		return outp, err
+	}, 60*time.Second); err != nil {
+		return
+	}
+
+	if err := Try("Find helloworld in registry", t, func() ([]byte, error) {
+		outp, err := cmd.Exec("services")
+		if err != nil {
+			return outp, err
+		}
+		if !strings.Contains(string(outp), "example") {
+			return outp, errors.New("Does not contain example")
+		}
+		return outp, err
+	}, 300*time.Second); err != nil {
+		outp, _ := cmd.Exec("logs", "subfolder-test")
+		t.Log(string(outp))
+		return
+	}
+
+	// call the service
+	if err := Try("Calling example", t, func() ([]byte, error) {
+		return cmd.Exec("example", "--name=John")
+	}, 30*time.Second); err != nil {
+		return
+	}
+}
+
+func TestRunPrivateGenericRemote(t *testing.T) {
+	TrySuite(t, testRunPrivateGenericRemote, retryCount)
+}
+
+func testRunPrivateGenericRemote(t *T) {
+	t.Parallel()
+	serv := NewServer(t, WithLogin())
+	defer serv.Close()
+	if err := serv.Run(); err != nil {
+		return
+	}
+
+	cmd := serv.Command()
+
+	// get the git credentials, injected by the k8s integration test
+	pat := os.Getenv("BITBUCKET_PAT")
+	if len(pat) == 0 {
+		t.Logf("Skipping test, missing BITBUCKET_PAT")
+		return
+	}
+
+	// set the pat in the users config
+	if outp, err := cmd.Exec("user", "config", "set", "git.bitbucket.credentials", pat); err != nil {
+		t.Fatalf("Expected no error, got %v %v", err, string(outp))
+		return
+	}
+
+	// run the service
+	if outp, err := cmd.Exec("run", "--image", "localhost:5000/cells:go", "bitbucket.org/micro-test/private-monorepo-test/subfolder-test"); err != nil {
+		t.Fatalf("Expected no error, got %v %v", err, string(outp))
+		return
+	}
+
+	if err := Try("Find micro/test/helloworld in runtime", t, func() ([]byte, error) {
+		outp, err := cmd.Exec("status")
+		if err != nil {
+			return outp, err
+		}
+
+		if !statusRunning("subfolder-test", "latest", outp) {
+			return outp, errors.New("Can't find helloworld service in runtime")
+		}
+		return outp, err
+	}, 60*time.Second); err != nil {
+		return
+	}
+
+	if err := Try("Find helloworld in registry", t, func() ([]byte, error) {
+		outp, err := cmd.Exec("services")
+		if err != nil {
+			return outp, err
+		}
+		if !strings.Contains(string(outp), "example") {
+			return outp, errors.New("Does not contain example")
+		}
+		return outp, err
+	}, 300*time.Second); err != nil {
+		outp, _ := cmd.Exec("logs", "subfolder-test")
+		t.Log(string(outp))
+		return
+	}
+
+	// call the service
+	if err := Try("Calling example", t, func() ([]byte, error) {
+		return cmd.Exec("example", "--name=John")
+	}, 30*time.Second); err != nil {
+		return
+	}
+
+	// update service
+
+	// run the service
+	if outp, err := cmd.Exec("run", "--image", "localhost:5000/cells:go", "gitlab.com/micro-test/private-monorepo-test/subfolder-test"); err != nil {
+		t.Fatalf("Expected no error, got %v %v", err, string(outp))
+		return
+	}
+
+	// We need a better way of knowing the server restarted than a sleep...
+	time.Sleep(5 * time.Second)
+
+	if err := Try("Find micro/test/helloworld in runtime", t, func() ([]byte, error) {
+		outp, err := cmd.Exec("status")
+		if err != nil {
+			return outp, err
+		}
+
+		if !statusRunning("subfolder-test", "latest", outp) {
+			return outp, errors.New("Can't find helloworld service in runtime")
+		}
+		return outp, err
+	}, 60*time.Second); err != nil {
+		return
+	}
+
+	if err := Try("Find helloworld in registry", t, func() ([]byte, error) {
+		outp, err := cmd.Exec("services")
+		if err != nil {
+			return outp, err
+		}
+		if !strings.Contains(string(outp), "example") {
+			return outp, errors.New("Does not contain example")
+		}
+		return outp, err
+	}, 300*time.Second); err != nil {
+		outp, _ := cmd.Exec("logs", "subfolder-test")
+		t.Log(string(outp))
+		return
+	}
+
+	// call the service
+	if err := Try("Calling example", t, func() ([]byte, error) {
+		return cmd.Exec("example", "--name=John")
 	}, 30*time.Second); err != nil {
 		return
 	}
