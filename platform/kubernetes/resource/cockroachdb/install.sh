@@ -1,5 +1,12 @@
 #!/bin/bash
 
+SIZE=$1
+
+# default to 25Gi
+if [ "$SIZE" == "" ]; then
+  SIZE=25Gi
+fi
+
 # move into the certs directory
 cd certs;
 
@@ -15,6 +22,7 @@ cfssl gencert -ca=ca.pem -ca-key=ca-key.pem -config=ca-config.json -profile=peer
 kubectl create secret generic cockroachdb-client-certs --from-file=ca.crt=ca.pem --from-file=cert.pem=client.pem --from-file=key.pem=client-key.pem;
 kubectl create secret generic cockroachdb-server-certs --from-file=ca.crt=ca.pem --from-file=tls.crt=server.pem --from-file=tls.key=server-key.pem;
 kubectl create secret generic cockroachdb-peer-certs --from-file=ca.crt=ca.pem --from-file=tls.crt=peer.pem --from-file=tls.key=peer-key.pem;
+kubectl create secret generic cockroachdb-debug-certs --from-file=ca.crt=ca.pem --from-file=client.root.crt=client.pem --from-file=client.root.key=client-key.pem;
 
 # move back into the /cockroachdb directory
 cd ../;
@@ -23,7 +31,7 @@ cd ../;
 helm repo add cockroachdb https://charts.cockroachdb.com/
 helm install cockroachdb-cluster cockroachdb/cockroachdb \
   --set statefulset.replicas=1 \
-  --set storage.persistentVolume.size=100Gi \
+  --set storage.persistentVolume.size=$SIZE \
   --set tls.certs.clientRootSecret=cockroachdb-peer-certs \
   --set tls.certs.nodeSecret=cockroachdb-server-certs \
   --set tls.certs.tlsSecret=true \

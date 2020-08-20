@@ -22,9 +22,9 @@ import (
 // the error will also be nil. An error is only returned if there was an issue
 // listing from the registry.
 func lookupService(ctx *cli.Context) (*goregistry.Service, error) {
-	// TODO: remove the service prefix from the name, go.micro.service.helloworld
-	// will soon be named just the alias, e.g. "helloworld".
-	name := fmt.Sprintf("go.micro.service.%v", ctx.Args().First())
+	// use the first arg as the name, e.g. "micro helloworld foo"
+	// would try to call the helloworld service
+	name := ctx.Args().First()
 
 	// get the namespace to query the services from
 	dom, err := namespace.Get(util.GetEnv(ctx).Name)
@@ -33,25 +33,17 @@ func lookupService(ctx *cli.Context) (*goregistry.Service, error) {
 	}
 
 	// lookup from the registry in the current namespace
-	srvs, err := registry.GetService(name, goregistry.GetDomain(dom))
-	if err != nil && err != goregistry.ErrNotFound {
+	if srv, err := serviceWithName(name, dom); err != nil {
 		return nil, err
-	} else if len(srvs) > 0 {
-		return srvs[0], nil
+	} else if srv != nil {
+		return srv, nil
 	}
 
 	// check for the service in the default namespace also
-	if dom != goregistry.DefaultDomain {
-		srvs, err := registry.GetService(name)
-		if err != nil && err != goregistry.ErrNotFound {
-			return nil, err
-		} else if len(srvs) > 0 {
-			return srvs[0], nil
-		}
+	if dom == goregistry.DefaultDomain {
+		return nil, nil
 	}
-
-	// no service was found
-	return nil, nil
+	return serviceWithName(name, goregistry.DefaultDomain)
 }
 
 // formatServiceUsage returns a string containing the service usage.
@@ -118,7 +110,7 @@ func callService(srv *goregistry.Service, ctx *cli.Context) error {
 	// construct and execute the request using the json content type
 	req := client.NewRequest(srv.Name, endpoint, body, goclient.WithContentType("application/json"))
 	var rsp json.RawMessage
-	if err := client.Call(ctx.Context, req, &rsp); err != nil {
+	if err := client.Call(ctx.Context, req, &rsp, goclient.WithAuthToken()); err != nil {
 		return err
 	}
 
@@ -128,6 +120,7 @@ func callService(srv *goregistry.Service, ctx *cli.Context) error {
 	if err := json.Indent(&out, rsp, "", "\t"); err != nil {
 		return err
 	}
+	out.Write([]byte("\n"))
 	out.WriteTo(os.Stdout)
 
 	return nil
@@ -148,10 +141,14 @@ func splitCmdArgs(ctx *cli.Context) ([]string, map[string]string, error) {
 
 		// comps would be "foo", "bar" for "--foo=bar"
 		comps := strings.Split(strings.TrimPrefix(a, "--"), "=")
-		if len(comps) != 2 {
+		switch len(comps) {
+		case 1:
+			flags[comps[0]] = ""
+		case 2:
+			flags[comps[0]] = comps[1]
+		default:
 			return nil, nil, fmt.Errorf("Invalid flag: %v. Expected format: --foo=bar", a)
 		}
-		flags[comps[0]] = comps[1]
 	}
 
 	return args, flags, nil
@@ -163,6 +160,8 @@ func splitCmdArgs(ctx *cli.Context) ([]string, map[string]string, error) {
 func constructEndpoint(args []string) (string, error) {
 	var epComps []string
 	switch len(args) {
+	case 1:
+		epComps = append(args, "call")
 	case 2:
 		epComps = args
 	case 3:
@@ -174,6 +173,17 @@ func constructEndpoint(args []string) (string, error) {
 	// transform the endpoint components, e.g ["helloworld", "call"] to the
 	// endpoint name: "Helloworld.Call".
 	return fmt.Sprintf("%v.%v", strings.Title(epComps[0]), strings.Title(epComps[1])), nil
+}
+
+// shouldRenderHelp returns true if the help flag was passed
+func shouldRenderHelp(ctx *cli.Context) bool {
+	_, flags, _ := splitCmdArgs(ctx)
+	for key := range flags {
+		if key == "help" {
+			return true
+		}
+	}
+	return false
 }
 
 // flagsToRequeest parses a set of flags, e.g {name:"Foo", "options_surname","Bar"} and
@@ -214,4 +224,18 @@ loop:
 	}
 
 	return result, nil
+}
+
+// find a service in a domain matching the name
+func serviceWithName(name, domain string) (*goregistry.Service, error) {
+	srvs, err := registry.GetService(name, goregistry.GetDomain(domain))
+	if err == goregistry.ErrNotFound {
+		return nil, nil
+	} else if err != nil {
+		return nil, err
+	}
+	if len(srvs) == 0 {
+		return nil, nil
+	}
+	return srvs[0], nil
 }

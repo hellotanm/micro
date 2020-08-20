@@ -14,8 +14,6 @@ import (
 	api "github.com/micro/go-micro/v3/api"
 	client "github.com/micro/go-micro/v3/client"
 	server "github.com/micro/go-micro/v3/server"
-	microClient "github.com/micro/micro/v3/service/client"
-	microServer "github.com/micro/micro/v3/service/server"
 )
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -33,8 +31,7 @@ const _ = proto.ProtoPackageIsVersion3 // please upgrade the proto package
 var _ api.Endpoint
 var _ context.Context
 var _ client.Option
-var _ = microServer.Handle
-var _ = microClient.Call
+var _ server.Option
 
 // Api Endpoints for Router service
 
@@ -47,22 +44,24 @@ func NewRouterEndpoints() []*api.Endpoint {
 type RouterService interface {
 	Lookup(ctx context.Context, in *LookupRequest, opts ...client.CallOption) (*LookupResponse, error)
 	Watch(ctx context.Context, in *WatchRequest, opts ...client.CallOption) (Router_WatchService, error)
-	Advertise(ctx context.Context, in *Request, opts ...client.CallOption) (Router_AdvertiseService, error)
-	Process(ctx context.Context, in *Advert, opts ...client.CallOption) (*ProcessResponse, error)
 }
 
 type routerService struct {
+	c    client.Client
 	name string
 }
 
-func NewRouterService(name string) RouterService {
-	return &routerService{name: name}
+func NewRouterService(name string, c client.Client) RouterService {
+	return &routerService{
+		c:    c,
+		name: name,
+	}
 }
 
 func (c *routerService) Lookup(ctx context.Context, in *LookupRequest, opts ...client.CallOption) (*LookupResponse, error) {
-	req := microClient.NewRequest(c.name, "Router.Lookup", in)
+	req := c.c.NewRequest(c.name, "Router.Lookup", in)
 	out := new(LookupResponse)
-	err := microClient.Call(ctx, req, out, opts...)
+	err := c.c.Call(ctx, req, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -70,8 +69,8 @@ func (c *routerService) Lookup(ctx context.Context, in *LookupRequest, opts ...c
 }
 
 func (c *routerService) Watch(ctx context.Context, in *WatchRequest, opts ...client.CallOption) (Router_WatchService, error) {
-	req := microClient.NewRequest(c.name, "Router.Watch", &WatchRequest{})
-	stream, err := microClient.Stream(ctx, req, opts...)
+	req := c.c.NewRequest(c.name, "Router.Watch", &WatchRequest{})
+	stream, err := c.c.Stream(ctx, req, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -118,86 +117,23 @@ func (x *routerServiceWatch) Recv() (*Event, error) {
 	return m, nil
 }
 
-func (c *routerService) Advertise(ctx context.Context, in *Request, opts ...client.CallOption) (Router_AdvertiseService, error) {
-	req := microClient.NewRequest(c.name, "Router.Advertise", &Request{})
-	stream, err := microClient.Stream(ctx, req, opts...)
-	if err != nil {
-		return nil, err
-	}
-	if err := stream.Send(in); err != nil {
-		return nil, err
-	}
-	return &routerServiceAdvertise{stream}, nil
-}
-
-type Router_AdvertiseService interface {
-	Context() context.Context
-	SendMsg(interface{}) error
-	RecvMsg(interface{}) error
-	Close() error
-	Recv() (*Advert, error)
-}
-
-type routerServiceAdvertise struct {
-	stream client.Stream
-}
-
-func (x *routerServiceAdvertise) Close() error {
-	return x.stream.Close()
-}
-
-func (x *routerServiceAdvertise) Context() context.Context {
-	return x.stream.Context()
-}
-
-func (x *routerServiceAdvertise) SendMsg(m interface{}) error {
-	return x.stream.Send(m)
-}
-
-func (x *routerServiceAdvertise) RecvMsg(m interface{}) error {
-	return x.stream.Recv(m)
-}
-
-func (x *routerServiceAdvertise) Recv() (*Advert, error) {
-	m := new(Advert)
-	err := x.stream.Recv(m)
-	if err != nil {
-		return nil, err
-	}
-	return m, nil
-}
-
-func (c *routerService) Process(ctx context.Context, in *Advert, opts ...client.CallOption) (*ProcessResponse, error) {
-	req := microClient.NewRequest(c.name, "Router.Process", in)
-	out := new(ProcessResponse)
-	err := microClient.Call(ctx, req, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 // Server API for Router service
 
 type RouterHandler interface {
 	Lookup(context.Context, *LookupRequest, *LookupResponse) error
 	Watch(context.Context, *WatchRequest, Router_WatchStream) error
-	Advertise(context.Context, *Request, Router_AdvertiseStream) error
-	Process(context.Context, *Advert, *ProcessResponse) error
 }
 
-func RegisterRouterHandler(hdlr RouterHandler, opts ...server.HandlerOption) error {
+func RegisterRouterHandler(s server.Server, hdlr RouterHandler, opts ...server.HandlerOption) error {
 	type router interface {
 		Lookup(ctx context.Context, in *LookupRequest, out *LookupResponse) error
 		Watch(ctx context.Context, stream server.Stream) error
-		Advertise(ctx context.Context, stream server.Stream) error
-		Process(ctx context.Context, in *Advert, out *ProcessResponse) error
 	}
 	type Router struct {
 		router
 	}
 	h := &routerHandler{hdlr}
-	return microServer.Handle(microServer.NewHandler(&Router{h}, opts...))
+	return s.Handle(s.NewHandler(&Router{h}, opts...))
 }
 
 type routerHandler struct {
@@ -248,50 +184,6 @@ func (x *routerWatchStream) Send(m *Event) error {
 	return x.stream.Send(m)
 }
 
-func (h *routerHandler) Advertise(ctx context.Context, stream server.Stream) error {
-	m := new(Request)
-	if err := stream.Recv(m); err != nil {
-		return err
-	}
-	return h.RouterHandler.Advertise(ctx, m, &routerAdvertiseStream{stream})
-}
-
-type Router_AdvertiseStream interface {
-	Context() context.Context
-	SendMsg(interface{}) error
-	RecvMsg(interface{}) error
-	Close() error
-	Send(*Advert) error
-}
-
-type routerAdvertiseStream struct {
-	stream server.Stream
-}
-
-func (x *routerAdvertiseStream) Close() error {
-	return x.stream.Close()
-}
-
-func (x *routerAdvertiseStream) Context() context.Context {
-	return x.stream.Context()
-}
-
-func (x *routerAdvertiseStream) SendMsg(m interface{}) error {
-	return x.stream.Send(m)
-}
-
-func (x *routerAdvertiseStream) RecvMsg(m interface{}) error {
-	return x.stream.Recv(m)
-}
-
-func (x *routerAdvertiseStream) Send(m *Advert) error {
-	return x.stream.Send(m)
-}
-
-func (h *routerHandler) Process(ctx context.Context, in *Advert, out *ProcessResponse) error {
-	return h.RouterHandler.Process(ctx, in, out)
-}
-
 // Api Endpoints for Table service
 
 func NewTableEndpoints() []*api.Endpoint {
@@ -309,17 +201,21 @@ type TableService interface {
 }
 
 type tableService struct {
+	c    client.Client
 	name string
 }
 
-func NewTableService(name string) TableService {
-	return &tableService{name: name}
+func NewTableService(name string, c client.Client) TableService {
+	return &tableService{
+		c:    c,
+		name: name,
+	}
 }
 
 func (c *tableService) Create(ctx context.Context, in *Route, opts ...client.CallOption) (*CreateResponse, error) {
-	req := microClient.NewRequest(c.name, "Table.Create", in)
+	req := c.c.NewRequest(c.name, "Table.Create", in)
 	out := new(CreateResponse)
-	err := microClient.Call(ctx, req, out, opts...)
+	err := c.c.Call(ctx, req, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -327,9 +223,9 @@ func (c *tableService) Create(ctx context.Context, in *Route, opts ...client.Cal
 }
 
 func (c *tableService) Delete(ctx context.Context, in *Route, opts ...client.CallOption) (*DeleteResponse, error) {
-	req := microClient.NewRequest(c.name, "Table.Delete", in)
+	req := c.c.NewRequest(c.name, "Table.Delete", in)
 	out := new(DeleteResponse)
-	err := microClient.Call(ctx, req, out, opts...)
+	err := c.c.Call(ctx, req, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -337,9 +233,9 @@ func (c *tableService) Delete(ctx context.Context, in *Route, opts ...client.Cal
 }
 
 func (c *tableService) Update(ctx context.Context, in *Route, opts ...client.CallOption) (*UpdateResponse, error) {
-	req := microClient.NewRequest(c.name, "Table.Update", in)
+	req := c.c.NewRequest(c.name, "Table.Update", in)
 	out := new(UpdateResponse)
-	err := microClient.Call(ctx, req, out, opts...)
+	err := c.c.Call(ctx, req, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -347,9 +243,9 @@ func (c *tableService) Update(ctx context.Context, in *Route, opts ...client.Cal
 }
 
 func (c *tableService) List(ctx context.Context, in *Request, opts ...client.CallOption) (*ListResponse, error) {
-	req := microClient.NewRequest(c.name, "Table.List", in)
+	req := c.c.NewRequest(c.name, "Table.List", in)
 	out := new(ListResponse)
-	err := microClient.Call(ctx, req, out, opts...)
+	err := c.c.Call(ctx, req, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -357,9 +253,9 @@ func (c *tableService) List(ctx context.Context, in *Request, opts ...client.Cal
 }
 
 func (c *tableService) Query(ctx context.Context, in *QueryRequest, opts ...client.CallOption) (*QueryResponse, error) {
-	req := microClient.NewRequest(c.name, "Table.Query", in)
+	req := c.c.NewRequest(c.name, "Table.Query", in)
 	out := new(QueryResponse)
-	err := microClient.Call(ctx, req, out, opts...)
+	err := c.c.Call(ctx, req, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -376,7 +272,7 @@ type TableHandler interface {
 	Query(context.Context, *QueryRequest, *QueryResponse) error
 }
 
-func RegisterTableHandler(hdlr TableHandler, opts ...server.HandlerOption) error {
+func RegisterTableHandler(s server.Server, hdlr TableHandler, opts ...server.HandlerOption) error {
 	type table interface {
 		Create(ctx context.Context, in *Route, out *CreateResponse) error
 		Delete(ctx context.Context, in *Route, out *DeleteResponse) error
@@ -388,7 +284,7 @@ func RegisterTableHandler(hdlr TableHandler, opts ...server.HandlerOption) error
 		table
 	}
 	h := &tableHandler{hdlr}
-	return microServer.Handle(microServer.NewHandler(&Table{h}, opts...))
+	return s.Handle(s.NewHandler(&Table{h}, opts...))
 }
 
 type tableHandler struct {

@@ -4,17 +4,20 @@ import (
 	"context"
 	"time"
 
-	"github.com/micro/go-micro/v3/runtime"
+	goauth "github.com/micro/go-micro/v3/auth"
+	goevents "github.com/micro/go-micro/v3/events"
+	gorun "github.com/micro/go-micro/v3/runtime"
 	"github.com/micro/micro/v3/internal/namespace"
-	"github.com/micro/micro/v3/service"
+	"github.com/micro/micro/v3/service/auth"
 	"github.com/micro/micro/v3/service/errors"
+	"github.com/micro/micro/v3/service/events"
 	log "github.com/micro/micro/v3/service/logger"
+	"github.com/micro/micro/v3/service/runtime"
 	pb "github.com/micro/micro/v3/service/runtime/proto"
 )
 
 type Runtime struct {
-	Runtime runtime.Runtime
-	Event   *service.Event
+	Runtime gorun.Runtime
 }
 
 func (r *Runtime) Read(ctx context.Context, req *pb.ReadRequest, rsp *pb.ReadResponse) error {
@@ -28,18 +31,18 @@ func (r *Runtime) Read(ctx context.Context, req *pb.ReadRequest, rsp *pb.ReadRes
 
 	// authorize the request
 	if err := namespace.Authorize(ctx, req.Options.Namespace); err == namespace.ErrForbidden {
-		return errors.Forbidden("go.micro.runtime", err.Error())
+		return errors.Forbidden("runtime.Runtime.Read", err.Error())
 	} else if err == namespace.ErrUnauthorized {
-		return errors.Unauthorized("go.micro.runtime", err.Error())
+		return errors.Unauthorized("runtime.Runtime.Read", err.Error())
 	} else if err != nil {
-		return errors.InternalServerError("go.micro.runtime", err.Error())
+		return errors.InternalServerError("runtime.Runtime.Read", err.Error())
 	}
 
 	// lookup the services
 	options := toReadOptions(ctx, req.Options)
 	services, err := r.Runtime.Read(options...)
 	if err != nil {
-		return errors.InternalServerError("go.micro.runtime", err.Error())
+		return errors.InternalServerError("runtime.Runtime.Read", err.Error())
 	}
 
 	// serialize the response
@@ -53,7 +56,7 @@ func (r *Runtime) Read(ctx context.Context, req *pb.ReadRequest, rsp *pb.ReadRes
 func (r *Runtime) Create(ctx context.Context, req *pb.CreateRequest, rsp *pb.CreateResponse) error {
 	// validate the request
 	if req.Service == nil {
-		return errors.BadRequest("go.micro.runtime", "blank service")
+		return errors.BadRequest("runtime.Runtime.Create", "blank service")
 	}
 
 	// set defaults
@@ -66,37 +69,41 @@ func (r *Runtime) Create(ctx context.Context, req *pb.CreateRequest, rsp *pb.Cre
 
 	// authorize the request
 	if err := namespace.Authorize(ctx, req.Options.Namespace); err == namespace.ErrForbidden {
-		return errors.Forbidden("go.micro.runtime", err.Error())
+		return errors.Forbidden("runtime.Runtime.Create", err.Error())
 	} else if err == namespace.ErrUnauthorized {
-		return errors.Unauthorized("go.micro.runtime", err.Error())
+		return errors.Unauthorized("runtime.Runtime.Create", err.Error())
 	} else if err != nil {
-		return errors.InternalServerError("go.micro.runtime", err.Error())
+		return errors.InternalServerError("runtime.Runtime.Create", err.Error())
 	}
 
 	// create the service
 	service := toService(req.Service)
+	setupServiceMeta(ctx, service)
+
 	options := toCreateOptions(ctx, req.Options)
 
 	log.Infof("Creating service %s version %s source %s", service.Name, service.Version, service.Source)
 	if err := r.Runtime.Create(service, options...); err != nil {
-		return errors.InternalServerError("go.micro.runtime", err.Error())
+		return errors.InternalServerError("runtime.Runtime.Create", err.Error())
 	}
 
 	// publish the create event
-	r.Event.Publish(ctx, &pb.Event{
-		Type:      "create",
-		Timestamp: time.Now().Unix(),
-		Service:   req.Service.Name,
-		Version:   req.Service.Version,
-	})
+	ev := &runtime.EventPayload{
+		Service:   service,
+		Namespace: req.Options.Namespace,
+		Type:      runtime.EventServiceCreated,
+	}
 
-	return nil
+	return events.Publish(runtime.EventTopic, ev, goevents.WithMetadata(map[string]string{
+		"type":      runtime.EventServiceCreated,
+		"namespace": req.Options.Namespace,
+	}))
 }
 
 func (r *Runtime) Update(ctx context.Context, req *pb.UpdateRequest, rsp *pb.UpdateResponse) error {
 	// validate the request
 	if req.Service == nil {
-		return errors.BadRequest("go.micro.runtime", "blank service")
+		return errors.BadRequest("runtime.Runtime.Update", "blank service")
 	}
 
 	// set defaults
@@ -109,37 +116,58 @@ func (r *Runtime) Update(ctx context.Context, req *pb.UpdateRequest, rsp *pb.Upd
 
 	// authorize the request
 	if err := namespace.Authorize(ctx, req.Options.Namespace); err == namespace.ErrForbidden {
-		return errors.Forbidden("go.micro.runtime", err.Error())
+		return errors.Forbidden("runtime.Runtime.Update", err.Error())
 	} else if err == namespace.ErrUnauthorized {
-		return errors.Unauthorized("go.micro.runtime", err.Error())
+		return errors.Unauthorized("runtime.Runtime.Update", err.Error())
 	} else if err != nil {
-		return errors.InternalServerError("go.micro.runtime", err.Error())
+		return errors.InternalServerError("runtime.Runtime.Update", err.Error())
 	}
 
 	service := toService(req.Service)
+	setupServiceMeta(ctx, service)
+
 	options := toUpdateOptions(ctx, req.Options)
 
 	log.Infof("Updating service %s version %s source %s", service.Name, service.Version, service.Source)
 
 	if err := r.Runtime.Update(service, options...); err != nil {
-		return errors.InternalServerError("go.micro.runtime", err.Error())
+		return errors.InternalServerError("runtime.Runtime.Update", err.Error())
 	}
 
 	// publish the update event
-	r.Event.Publish(ctx, &pb.Event{
-		Type:      "update",
-		Timestamp: time.Now().Unix(),
-		Service:   req.Service.Name,
-		Version:   req.Service.Version,
-	})
+	ev := &runtime.EventPayload{
+		Service:   service,
+		Namespace: req.Options.Namespace,
+		Type:      runtime.EventServiceUpdated,
+	}
 
-	return nil
+	return events.Publish(runtime.EventTopic, ev, goevents.WithMetadata(map[string]string{
+		"type":      runtime.EventServiceUpdated,
+		"namespace": req.Options.Namespace,
+	}))
+}
+
+func setupServiceMeta(ctx context.Context, service *gorun.Service) {
+	if service.Metadata == nil {
+		service.Metadata = map[string]string{}
+	}
+	account, accOk := goauth.AccountFromContext(ctx)
+	if accOk {
+		service.Metadata["owner"] = account.ID
+		// This is a hack - we don't want vanilla `micro server` users where the auth is noop
+		// to have long uuid as owners, so we put micro here - not great, not terrible.
+		if auth.DefaultAuth.String() == "noop" {
+			service.Metadata["owner"] = "micro"
+		}
+		service.Metadata["group"] = account.Issuer
+	}
+	service.Metadata["started"] = time.Now().Format(time.RFC3339)
 }
 
 func (r *Runtime) Delete(ctx context.Context, req *pb.DeleteRequest, rsp *pb.DeleteResponse) error {
 	// validate the request
 	if req.Service == nil {
-		return errors.BadRequest("go.micro.runtime", "blank service")
+		return errors.BadRequest("runtime.Runtime.Delete", "blank service")
 	}
 
 	// set defaults
@@ -152,11 +180,11 @@ func (r *Runtime) Delete(ctx context.Context, req *pb.DeleteRequest, rsp *pb.Del
 
 	// authorize the request
 	if err := namespace.Authorize(ctx, req.Options.Namespace); err == namespace.ErrForbidden {
-		return errors.Forbidden("go.micro.runtime", err.Error())
+		return errors.Forbidden("runtime.Runtime.Delete", err.Error())
 	} else if err == namespace.ErrUnauthorized {
-		return errors.Unauthorized("go.micro.runtime", err.Error())
+		return errors.Unauthorized("runtime.Runtime.Delete", err.Error())
 	} else if err != nil {
-		return errors.InternalServerError("go.micro.runtime", err.Error())
+		return errors.InternalServerError("runtime.Runtime.Delete", err.Error())
 	}
 
 	// delete the service
@@ -165,18 +193,20 @@ func (r *Runtime) Delete(ctx context.Context, req *pb.DeleteRequest, rsp *pb.Del
 
 	log.Infof("Deleting service %s version %s source %s", service.Name, service.Version, service.Source)
 	if err := r.Runtime.Delete(service, options...); err != nil {
-		return errors.InternalServerError("go.micro.runtime", err.Error())
+		return errors.InternalServerError("runtime.Runtime.Delete", err.Error())
 	}
 
 	// publish the delete event
-	r.Event.Publish(ctx, &pb.Event{
-		Type:      "delete",
-		Timestamp: time.Now().Unix(),
-		Service:   req.Service.Name,
-		Version:   req.Service.Version,
-	})
+	ev := &runtime.EventPayload{
+		Type:      runtime.EventServiceDeleted,
+		Namespace: req.Options.Namespace,
+		Service:   service,
+	}
 
-	return nil
+	return events.Publish(runtime.EventTopic, ev, goevents.WithMetadata(map[string]string{
+		"type":      runtime.EventServiceDeleted,
+		"namespace": req.Options.Namespace,
+	}))
 }
 
 func (r *Runtime) Logs(ctx context.Context, req *pb.LogsRequest, stream pb.Runtime_LogsStream) error {
@@ -190,24 +220,24 @@ func (r *Runtime) Logs(ctx context.Context, req *pb.LogsRequest, stream pb.Runti
 
 	// authorize the request
 	if err := namespace.Authorize(ctx, req.Options.Namespace); err == namespace.ErrForbidden {
-		return errors.Forbidden("go.micro.runtime", err.Error())
+		return errors.Forbidden("runtime.Runtime.Logs", err.Error())
 	} else if err == namespace.ErrUnauthorized {
-		return errors.Unauthorized("go.micro.runtime", err.Error())
+		return errors.Unauthorized("runtime.Runtime.Logs", err.Error())
 	} else if err != nil {
-		return errors.InternalServerError("go.micro.runtime", err.Error())
+		return errors.InternalServerError("runtime.Runtime.Logs", err.Error())
 	}
 
 	opts := toLogsOptions(ctx, req.Options)
 
 	// options passed in the request
 	if req.GetCount() > 0 {
-		opts = append(opts, runtime.LogsCount(req.GetCount()))
+		opts = append(opts, gorun.LogsCount(req.GetCount()))
 	}
 	if req.GetStream() {
-		opts = append(opts, runtime.LogsStream(req.GetStream()))
+		opts = append(opts, gorun.LogsStream(req.GetStream()))
 	}
 
-	logStream, err := r.Runtime.Logs(&runtime.Service{
+	logStream, err := r.Runtime.Logs(&gorun.Service{
 		Name: req.GetService(),
 	}, opts...)
 	if err != nil {

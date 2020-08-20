@@ -14,6 +14,7 @@ import (
 func init() {
 	cmd.Register(&cli.Command{
 		Name:   "store",
+		Usage:  "Commands for accessing the store",
 		Action: helper.UnexpectedSubcommand,
 		Subcommands: []*cli.Command{
 			{
@@ -145,7 +146,7 @@ func init() {
 					&cli.StringFlag{
 						Name:  "store",
 						Usage: "store service to call",
-						Value: "go.micro.store",
+						Value: "store",
 					},
 				},
 			},
@@ -157,7 +158,7 @@ func init() {
 					&cli.StringFlag{
 						Name:  "store",
 						Usage: "store service to call",
-						Value: "go.micro.store",
+						Value: "store",
 					},
 					&cli.StringFlag{
 						Name:    "database",

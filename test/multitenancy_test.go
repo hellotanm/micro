@@ -5,13 +5,11 @@ package test
 import (
 	"errors"
 	"fmt"
-	"os/exec"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/micro/micro/v3/client/cli/namespace"
-	"github.com/micro/micro/v3/client/cli/token"
 )
 
 // Test for making sure config and store values across namespaces
@@ -32,25 +30,26 @@ func testNamespaceConfigIsolation(t *T) {
 }
 
 func testNamespaceConfigIsolationSuite(serv Server, t *T) {
-	err := namespace.Add(serv.EnvName(), serv.EnvName())
+	err := namespace.Add(serv.Env(), serv.Env())
 	if err != nil {
 		t.Fatal(err)
 		return
 	}
-	err = namespace.Set(serv.EnvName(), serv.EnvName())
+	err = namespace.Set(serv.Env(), serv.Env())
 	if err != nil {
 		t.Fatal(err)
 		return
 	}
 
-	Login(serv, t, "default", "password")
+	Login(serv, t, "admin", "micro")
 	if t.failed {
 		return
 	}
 
+	cmd := serv.Command()
+
 	if err := Try("Calling micro config set", t, func() ([]byte, error) {
-		setCmd := exec.Command("micro", serv.EnvFlag(), "config", "set", "somekey", "val1")
-		outp, err := setCmd.CombinedOutput()
+		outp, err := cmd.Exec("config", "set", "somekey", "val1")
 		if err != nil {
 			return outp, err
 		}
@@ -63,8 +62,7 @@ func testNamespaceConfigIsolationSuite(serv Server, t *T) {
 	}
 
 	if err := Try("micro config get somekey", t, func() ([]byte, error) {
-		getCmd := exec.Command("micro", serv.EnvFlag(), "config", "get", "somekey")
-		outp, err := getCmd.CombinedOutput()
+		outp, err := cmd.Exec("config", "get", "somekey")
 		if err != nil {
 			return outp, err
 		}
@@ -75,39 +73,26 @@ func testNamespaceConfigIsolationSuite(serv Server, t *T) {
 	}, 8*time.Second); err != nil {
 		return
 	}
-
-	err = namespace.Add("random", serv.EnvName())
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
-	err = namespace.Set("random", serv.EnvName())
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
-	err = token.Remove(serv.EnvName())
-	if err != nil {
-		t.Fatal(err)
-		return
+	currNamespace, _ := cmd.Exec("user", "config", "get", "namespaces."+serv.Env()+".current")
+	if err := ChangeNamespace(cmd, serv.Env(), "random"); err != nil {
+		t.Fatalf("Error changing namespace %s", err)
 	}
 
 	// This call is only here to trigger default account generation
-	exec.Command("micro", serv.EnvFlag(), "auth", "list", "accounts").CombinedOutput()
+	cmd.Exec("auth", "list", "accounts")
 
-	Login(serv, t, "default", "password")
+	Login(serv, t, "admin", "micro")
 	if t.failed {
 		return
 	}
 
 	if err := Try("reading 'somekey' should not be found with this account", t, func() ([]byte, error) {
-		getCmd := exec.Command("micro", serv.EnvFlag(), "config", "get", "somekey")
-		outp, err := getCmd.CombinedOutput()
+		outp, err := cmd.Exec("config", "get", "somekey")
 		if err == nil {
 			return outp, errors.New("getting somekey should fail")
 		}
 		if !strings.Contains(string(outp), "Not found") {
-			return outp, errors.New("Expected 'not found\n'")
+			return outp, errors.New("Expected 'Not found\n'")
 		}
 		return outp, nil
 	}, 8*time.Second); err != nil {
@@ -115,26 +100,16 @@ func testNamespaceConfigIsolationSuite(serv Server, t *T) {
 	}
 
 	// Log back to original namespace and see if value is already there
-
-	// orignal namespace matchesthe env name
-	err = namespace.Set(serv.EnvName(), serv.EnvName())
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
-	err = token.Remove(serv.EnvName())
-	if err != nil {
-		t.Fatal(err)
-		return
+	if err := ChangeNamespace(cmd, serv.Env(), string(currNamespace)); err != nil {
+		t.Fatalf("Error changing namespace %s", err)
 	}
 
-	if err := Login(serv, t, "default", "password"); err != nil {
+	if err := Login(serv, t, "admin", "micro"); err != nil {
 		return
 	}
 
 	if err := Try("micro config get somekey", t, func() ([]byte, error) {
-		getCmd := exec.Command("micro", serv.EnvFlag(), "config", "get", "somekey")
-		outp, err := getCmd.CombinedOutput()
+		outp, err := cmd.Exec("config", "get", "somekey")
 		if err != nil {
 			return outp, err
 		}

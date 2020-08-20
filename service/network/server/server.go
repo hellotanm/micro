@@ -10,39 +10,35 @@ import (
 	"github.com/micro/cli/v2"
 	net "github.com/micro/go-micro/v3/network"
 	"github.com/micro/go-micro/v3/network/mucp"
-	res "github.com/micro/go-micro/v3/network/resolver"
-	"github.com/micro/go-micro/v3/network/resolver/dns"
-	"github.com/micro/go-micro/v3/network/resolver/http"
-	"github.com/micro/go-micro/v3/network/resolver/registry"
 	"github.com/micro/go-micro/v3/proxy"
+	grpcProxy "github.com/micro/go-micro/v3/proxy/grpc"
 	mucpProxy "github.com/micro/go-micro/v3/proxy/mucp"
 	"github.com/micro/go-micro/v3/router"
-	regRouter "github.com/micro/go-micro/v3/router/registry"
 	"github.com/micro/go-micro/v3/server"
 	mucpServer "github.com/micro/go-micro/v3/server/mucp"
 	"github.com/micro/go-micro/v3/transport"
 	"github.com/micro/go-micro/v3/transport/quic"
 	"github.com/micro/go-micro/v3/tunnel"
-	"github.com/micro/go-micro/v3/util/mux"
+	tmucp "github.com/micro/go-micro/v3/tunnel/mucp"
 	"github.com/micro/micro/v3/internal/helper"
+	"github.com/micro/micro/v3/internal/muxer"
 	"github.com/micro/micro/v3/service"
 	log "github.com/micro/micro/v3/service/logger"
 	muregistry "github.com/micro/micro/v3/service/registry"
+	murouter "github.com/micro/micro/v3/service/router"
 )
 
 var (
 	// name of the network service
-	name = "go.micro.network"
+	name = "network"
 	// name of the micro network
-	networkName = "go.micro"
+	networkName = "micro"
 	// address is the network address
 	address = ":8443"
 	// peerAddress is the address the network peers on
 	peerAddress = ":8085"
 	// set the advertise address
 	advertise = ""
-	// resolver is the network resolver
-	resolver = "registry"
 	// the tunnel token
 	token = "micro"
 
@@ -65,7 +61,7 @@ var (
 		},
 		&cli.StringFlag{
 			Name:    "network",
-			Usage:   "Set the micro network name: go.micro",
+			Usage:   "Set the micro network name: micro",
 			EnvVars: []string{"MICRO_NETWORK"},
 		},
 		&cli.StringFlag{
@@ -77,16 +73,6 @@ var (
 			Name:    "token",
 			Usage:   "Set the micro network token for authentication",
 			EnvVars: []string{"MICRO_NETWORK_TOKEN"},
-		},
-		&cli.StringFlag{
-			Name:    "resolver",
-			Usage:   "Set the micro network resolver. This can be a comma separated list.",
-			EnvVars: []string{"MICRO_NETWORK_RESOLVER"},
-		},
-		&cli.StringFlag{
-			Name:    "advertise_strategy",
-			Usage:   "Set the route advertise strategy; all, best, local, none",
-			EnvVars: []string{"MICRO_NETWORK_ADVERTISE_STRATEGY"},
 		},
 	}
 )
@@ -116,40 +102,11 @@ func Run(ctx *cli.Context) error {
 	if len(ctx.String("nodes")) > 0 {
 		nodes = strings.Split(ctx.String("nodes"), ",")
 	}
-	if len(ctx.String("resolver")) > 0 {
-		resolver = ctx.String("resolver")
-	}
-	var r res.Resolver
-	switch resolver {
-	case "dns":
-		r = &dns.Resolver{}
-	case "http":
-		r = &http.Resolver{}
-	case "registry":
-		r = &registry.Resolver{}
-	}
 
-	// advertise the best routes
-	strategy := router.AdvertiseLocal
-	if a := ctx.String("advertise_strategy"); len(a) > 0 {
-		switch a {
-		case "all":
-			strategy = router.AdvertiseAll
-		case "best":
-			strategy = router.AdvertiseBest
-		case "local":
-			strategy = router.AdvertiseLocal
-		case "none":
-			strategy = router.AdvertiseNone
-		}
-	}
-
-	// Initialise service
+	// Initialise the local service
 	service := service.New(
 		service.Name(name),
 		service.Address(address),
-		service.RegisterTTL(time.Duration(ctx.Int("register_ttl"))*time.Second),
-		service.RegisterInterval(time.Duration(ctx.Int("register_interval"))*time.Second),
 	)
 
 	// create a tunnel
@@ -172,20 +129,22 @@ func Run(ctx *cli.Context) error {
 	}
 
 	gateway := ctx.String("gateway")
-	tun := tunnel.NewTunnel(tunOpts...)
+	tun := tmucp.NewTunnel(tunOpts...)
 	id := service.Server().Options().Id
 
 	// local tunnel router
-	rtr := regRouter.NewRouter(
+	rtr := murouter.DefaultRouter
+
+	rtr.Init(
 		router.Network(networkName),
 		router.Id(id),
 		router.Registry(muregistry.DefaultRegistry),
-		router.Advertise(strategy),
 		router.Gateway(gateway),
+		router.Precache(),
 	)
 
 	// create new network
-	n := mucp.NewNetwork(
+	netService := mucp.NewNetwork(
 		net.Id(id),
 		net.Name(networkName),
 		net.Address(peerAddress),
@@ -193,37 +152,51 @@ func Run(ctx *cli.Context) error {
 		net.Nodes(nodes...),
 		net.Tunnel(tun),
 		net.Router(rtr),
-		net.Resolver(r),
 	)
 
-	// local proxy
-	prx := mucpProxy.NewProxy(
+	// local proxy using grpc
+	// TODO: reenable after PR
+	localProxy := grpcProxy.NewProxy(
 		proxy.WithRouter(rtr),
 		proxy.WithClient(service.Client()),
-		proxy.WithLink("network", n.Client()),
+	)
+
+	// network proxy
+	// used by the network nodes to cluster
+	// and share routes or route through
+	// each other
+	networkProxy := mucpProxy.NewProxy(
+		proxy.WithRouter(rtr),
+		proxy.WithClient(service.Client()),
+		proxy.WithLink("network", netService.Client()),
 	)
 
 	// create a handler
 	h := mucpServer.DefaultRouter.NewHandler(
-		&Network{Network: n},
+		&Network{Network: netService},
 	)
 
 	// register the handler
 	mucpServer.DefaultRouter.Handle(h)
 
-	// create a new muxer
-	mux := mux.New(name, prx)
+	// local mux
+	localMux := muxer.New(name, localProxy)
 
-	// init server
+	// network mux
+	networkMux := muxer.New(name, networkProxy)
+
+	// init the local grpc server
 	service.Server().Init(
-		server.WithRouter(mux),
+		server.WithRouter(localMux),
 	)
 
 	// set network server to proxy
-	n.Server().Init(server.WithRouter(mux))
+	netService.Server().Init(
+		server.WithRouter(networkMux),
+	)
 
 	// connect network
-	if err := n.Connect(); err != nil {
+	if err := netService.Connect(); err != nil {
 		log.Fatalf("Network failed to connect: %v", err)
 	}
 
@@ -247,11 +220,12 @@ func Run(ctx *cli.Context) error {
 
 	if err := service.Run(); err != nil {
 		log.Errorf("Network %s failed: %v", networkName, err)
-		netClose(n)
+		netClose(netService)
 		os.Exit(1)
 	}
 
 	// close the network
-	netClose(n)
+	netClose(netService)
+
 	return nil
 }

@@ -147,18 +147,18 @@ func (m *manager) Start() error {
 
 	// todo: compare the store to the runtime incase we missed any events
 
-	// Resurrect services that were running previously
-	go m.resurrectServices()
+	// Watch services that were running previously
+	go m.watchServices()
 
 	return nil
 }
 
 // Logs for a service
-func (m *manager) Logs(srv *gorun.Service, opts ...gorun.LogsOption) (gorun.LogStream, error) {
+func (m *manager) Logs(srv *gorun.Service, opts ...gorun.LogsOption) (gorun.Logs, error) {
 	return runtime.Logs(srv, opts...)
 }
 
-func (m *manager) resurrectServices() {
+func (m *manager) watchServices() {
 	nss, err := m.listNamespaces()
 	if err != nil {
 		logger.Warnf("Error listing namespaces: %v", err)
@@ -198,11 +198,15 @@ func (m *manager) resurrectServices() {
 				gorun.WithArgs(srv.Options.Args...),
 				gorun.WithCommand(srv.Options.Command...),
 				gorun.WithEnv(m.runtimeEnv(srv.Service, srv.Options)),
-				gorun.WithSecret("MICRO_AUTH_ID", acc.ID),
-				gorun.WithSecret("MICRO_AUTH_SECRET", acc.Secret),
 			}
 
-			// add the secrets
+			// inject the credentials into the service if present
+			if len(acc.ID) > 0 && len(acc.Secret) > 0 {
+				options = append(options, gorun.WithSecret("MICRO_AUTH_ID", acc.ID))
+				options = append(options, gorun.WithSecret("MICRO_AUTH_SECRET", acc.Secret))
+			}
+
+			// add the secrets provided by the client
 			for key, value := range srv.Options.Secrets {
 				options = append(options, gorun.WithSecret(key, value))
 			}
@@ -210,7 +214,7 @@ func (m *manager) resurrectServices() {
 			// create the service
 			if err := runtime.Create(srv.Service, options...); err != nil {
 				if logger.V(logger.ErrorLevel, logger.DefaultLogger) {
-					logger.Errorf("Error resurrecting service: %v", err)
+					logger.Errorf("Error restarting service: %v", err)
 				}
 			}
 		}

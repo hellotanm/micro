@@ -1,4 +1,4 @@
-# Micro [![License](https://img.shields.io/:license-apache-blue.svg)](https://opensource.org/licenses/Apache-2.0) [![Go.Dev reference](https://img.shields.io/badge/go.dev-reference-007d9c?logo=go&logoColor=white&style=flat-square)](https://pkg.go.dev/github.com/micro/micro/v3?tab=overview) [![Travis CI](https://travis-ci.org/micro/micro.svg?branch=master)](https://travis-ci.org/micro/micro) [![Go Report Card](https://goreportcard.com/badge/micro/micro)](https://goreportcard.com/report/github.com/micro/micro)
+# Micro [![License](https://img.shields.io/badge/license-polyform:shield-blue)](https://polyformproject.org/licenses/shield/1.0.0/) [![Go.Dev reference](https://img.shields.io/badge/go.dev-reference-007d9c?logo=go&logoColor=white&style=flat-square)](https://pkg.go.dev/github.com/micro/micro/v3?tab=overview) [![Travis CI](https://travis-ci.org/micro/micro.svg?branch=master)](https://travis-ci.org/micro/micro) [![Go Report Card](https://goreportcard.com/badge/micro/micro)](https://goreportcard.com/report/github.com/micro/micro) [<img src="https://img.shields.io/badge/slack-micro-yellow.svg?logo=slack" />](https://slack.micro.mu)
 
 Micro is a framework for cloud native development.
 
@@ -12,17 +12,17 @@ with the complexity of distributed systems and provides simpler programmable abs
 
 The framework is composed of the following features:
 
-- **Server:** A distributed systems runtime server composed of building block services which abstract away the underlying infrastructure 
+- **Server:** A distributed systems runtime composed of building block services which abstract away the underlying infrastructure 
 and provide a programmable abstraction layer. Authentication, configuration, messaging, storage and more built in.
 
 - **Clients:** Multiple entrypoints through which you can access your services. Write services once and access them through every means 
-you've already come to know. An API Gateway, gRPC proxy, slack bot, web dashboard and commmand line interface.
+you've already come to know. A HTTP api, gRPC proxy and commmand line interface.
 
 - **Library:** A Go library which makes it drop dead simple to write your services without having to piece together lines and lines of 
 boilerplate. Auto configured and initialised by default, just import and get started quickly.
 
 - **Plugins:** Micro is runtime and infrastructure agnostic. Each underlying building block service uses the Go Micro standard library 
-to provide a pluggable foundation. We make it simple to use by pre-initialising of local use and the cloud.
+to provide a pluggable foundation. We make it simple to use by pre-initialising for local use and the cloud.
 
 ## Install
 
@@ -72,7 +72,10 @@ micro run helloworld
 micro services
 
 # call a service
-micro call helloworld Helloworld.Call '{"name": "John"}'
+micro call helloworld Helloworld.Call '{"name": "Alice"}'
+
+# curl via the api
+curl -d '{"name": "Alice"}' http://localhost:8080/helloworld
 ```
 
 ## Usage
@@ -87,4 +90,4 @@ See the [docs](https://github.com/micro/docs) for detailed information on the ar
 
 ## License
 
-Micro is Apache 2.0 Licensed
+See [LICENSE](LICENSE) which makes use of [Polyform Shield](https://polyformproject.org/licenses/shield/1.0.0/).

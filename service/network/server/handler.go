@@ -6,6 +6,7 @@ import (
 	"github.com/micro/go-micro/v3/network"
 	"github.com/micro/go-micro/v3/network/mucp"
 	"github.com/micro/go-micro/v3/router"
+	"github.com/micro/micro/v3/internal/namespace"
 	"github.com/micro/micro/v3/service/errors"
 	log "github.com/micro/micro/v3/service/logger"
 	pb "github.com/micro/micro/v3/service/network/proto"
@@ -141,31 +142,46 @@ func (n *Network) Graph(ctx context.Context, req *pb.GraphRequest, resp *pb.Grap
 
 // Routes returns a list of routing table routes
 func (n *Network) Routes(ctx context.Context, req *pb.RoutesRequest, resp *pb.RoutesResponse) error {
+	// default the network to the current users namespace
+	if req.Query == nil {
+		req.Query = &pb.Query{}
+	}
+	if len(req.Query.Network) == 0 {
+		req.Query.Network = namespace.FromContext(ctx)
+	}
+
+	// authorize the request
+	if err := namespace.Authorize(ctx, req.Query.Network); err == namespace.ErrForbidden {
+		return errors.Forbidden("network.Network.Routes", err.Error())
+	} else if err == namespace.ErrUnauthorized {
+		return errors.Unauthorized("network.Network.Routes", err.Error())
+	} else if err != nil {
+		return errors.InternalServerError("network.Network.Routes", err.Error())
+	}
+
 	// build query
-
 	var qOpts []router.QueryOption
+	if len(req.Query.Service) > 0 {
+		qOpts = append(qOpts, router.QueryService(req.Query.Service))
+	}
+	if len(req.Query.Address) > 0 {
+		qOpts = append(qOpts, router.QueryAddress(req.Query.Address))
+	}
+	if len(req.Query.Gateway) > 0 {
+		qOpts = append(qOpts, router.QueryGateway(req.Query.Gateway))
+	}
+	if len(req.Query.Router) > 0 {
+		qOpts = append(qOpts, router.QueryRouter(req.Query.Router))
+	}
 
-	if q := req.Query; q != nil {
-		if len(q.Service) > 0 {
-			qOpts = append(qOpts, router.QueryService(q.Service))
-		}
-		if len(q.Address) > 0 {
-			qOpts = append(qOpts, router.QueryAddress(q.Address))
-		}
-		if len(q.Gateway) > 0 {
-			qOpts = append(qOpts, router.QueryGateway(q.Gateway))
-		}
-		if len(q.Router) > 0 {
-			qOpts = append(qOpts, router.QueryRouter(q.Router))
-		}
-		if len(q.Network) > 0 {
-			qOpts = append(qOpts, router.QueryNetwork(q.Network))
-		}
+	// for users in the default namespace, allow access to all namespaces
+	if req.Query.Network != namespace.DefaultNamespace {
+		qOpts = append(qOpts, router.QueryNetwork(req.Query.Network))
 	}
 
 	routes, err := n.Network.Options().Router.Table().Query(qOpts...)
 	if err != nil {
-		return errors.InternalServerError("go.micro.network", "failed to list routes: %s", err)
+		return errors.InternalServerError("network.Network.Routes", "failed to list routes: %s", err)
 	}
 
 	respRoutes := make([]*pbRtr.Route, 0, len(routes))
@@ -189,9 +205,18 @@ func (n *Network) Routes(ctx context.Context, req *pb.RoutesRequest, resp *pb.Ro
 
 // Services returns a list of services based on the routing table
 func (n *Network) Services(ctx context.Context, req *pb.ServicesRequest, resp *pb.ServicesResponse) error {
+	// authorize the request. only accounts issued by micro (root accounts) can access this endpoint
+	if err := namespace.Authorize(ctx, namespace.DefaultNamespace); err == namespace.ErrForbidden {
+		return errors.Forbidden("network.Network.Services", err.Error())
+	} else if err == namespace.ErrUnauthorized {
+		return errors.Unauthorized("network.Network.Services", err.Error())
+	} else if err != nil {
+		return errors.InternalServerError("network.Network.Services", err.Error())
+	}
+
 	routes, err := n.Network.Options().Router.Table().List()
 	if err != nil {
-		return errors.InternalServerError("go.micro.network", "failed to list services: %s", err)
+		return errors.InternalServerError("network.Network.Services", "failed to list services: %s", err)
 	}
 
 	services := make(map[string]bool)

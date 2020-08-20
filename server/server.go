@@ -15,6 +15,7 @@ import (
 	"github.com/micro/micro/v3/cmd"
 	"github.com/micro/micro/v3/service"
 	"github.com/micro/micro/v3/service/client"
+	"github.com/micro/micro/v3/service/context"
 	log "github.com/micro/micro/v3/service/logger"
 	"github.com/micro/micro/v3/service/runtime"
 )
@@ -22,24 +23,22 @@ import (
 var (
 	// list of services managed
 	services = []string{
-		// runtime services
-		"config",   // ????
-		"auth",     // :8010
 		"network",  // :8443
 		"runtime",  // :8088
 		"registry", // :8000
-		"broker",   // :8001
+		"config",   // :8001
 		"store",    // :8002
-		"debug",    // :????
+		"broker",   // :8003
+		"events",   // :unset
+		"auth",     // :8010
 		"proxy",    // :8081
 		"api",      // :8080
-		"web",      // :8082
 	}
 )
 
 var (
 	// Name of the server microservice
-	Name = "go.micro.server"
+	Name = "server"
 	// Address is the router microservice bind address
 	Address = ":10001"
 )
@@ -53,7 +52,7 @@ func upload(ctx *cli.Context, args []string) ([]byte, error) {
 	filename := ctx.Args().Get(0)
 	localfile := ctx.Args().Get(1)
 
-	fileClient := file.New("go.micro.server", client.DefaultClient)
+	fileClient := file.New("server", client.DefaultClient, file.WithContext(context.DefaultContext))
 	return nil, fileClient.Upload(filename, localfile)
 }
 
@@ -109,13 +108,10 @@ func Run(context *cli.Context) error {
 	// TODO: reimplement peering of servers e.g --peer=node1,node2,node3
 	// peers are configured as network nodes to cluster between
 
-	log.Info("Loading core services")
+	log.Info("Starting server")
+
 	for _, service := range services {
 		name := service
-
-		if namespace := context.String("namespace"); len(namespace) > 0 {
-			name = fmt.Sprintf("%s.%s", namespace, service)
-		}
 
 		// set the proxy addres, default to the network running locally
 		proxy := context.String("proxy_address")
@@ -126,10 +122,11 @@ func Run(context *cli.Context) error {
 		log.Infof("Registering %s", name)
 		// @todo this is a hack
 		env := []string{}
-		cmdArgs := []string{}
+		// all things run by the server are `micro service [name]`
+		cmdArgs := []string{"service"}
 
 		switch service {
-		case "proxy", "web", "api", "bot", "cli":
+		case "proxy", "api":
 			// pull the values we care about from environment
 			for _, val := range os.Environ() {
 				// only process MICRO_ values
@@ -145,9 +142,6 @@ func Run(context *cli.Context) error {
 				env = append(env, val)
 			}
 		default:
-			// run server as "micro service [cmd]"
-			cmdArgs = append(cmdArgs, "service")
-
 			// pull the values we care about from environment
 			for _, val := range os.Environ() {
 				// only process MICRO_ values
@@ -178,7 +172,6 @@ func Run(context *cli.Context) error {
 			gorun.WithCommand(os.Args[0]),
 			gorun.WithArgs(cmdArgs...),
 			gorun.WithEnv(env),
-			gorun.WithOutput(os.Stdout),
 			gorun.WithRetries(10),
 			gorun.CreateImage("micro/micro"),
 		}
@@ -191,7 +184,7 @@ func Run(context *cli.Context) error {
 		}
 	}
 
-	log.Info("Starting service runtime")
+	log.Info("Starting server runtime")
 
 	// start the runtime
 	if err := runtime.DefaultRuntime.Start(); err != nil {
@@ -199,12 +192,8 @@ func Run(context *cli.Context) error {
 		return err
 	}
 	defer runtime.DefaultRuntime.Stop()
-	log.Info("Service runtime started")
 
-	// TODO: should we launch the console?
-	// start the console
-	// cli.Init(context)
-
+	// internal server
 	srv := service.New(
 		service.Name(Name),
 		service.Address(Address),
@@ -219,6 +208,8 @@ func Run(context *cli.Context) error {
 	if err := srv.Run(); err != nil {
 		log.Fatalf("Error running server: %v", err)
 	}
+
+	log.Info("Stopped server")
 
 	return nil
 }

@@ -15,6 +15,7 @@ import (
 	muclient "github.com/micro/micro/v3/service/client"
 	"github.com/micro/micro/v3/service/debug"
 	"github.com/micro/micro/v3/service/errors"
+	"github.com/micro/micro/v3/service/logger"
 	muserver "github.com/micro/micro/v3/service/server"
 )
 
@@ -39,17 +40,15 @@ func (a *authWrapper) wrapContext(ctx context.Context, opts ...client.CallOption
 		o(&options)
 	}
 
-	// check to see if the authorization header has already been set.
-	// We dont't override the header unless the AuthToken option has
-	// been specified or the header wasn't provided
-	if _, ok := metadata.Get(ctx, "Authorization"); ok && !options.AuthToken {
-		return ctx
-	}
-
 	// set the namespace header if it has not been set (e.g. on a service to service request)
 	authOpts := auth.DefaultAuth.Options()
 	if _, ok := metadata.Get(ctx, "Micro-Namespace"); !ok {
 		ctx = metadata.Set(ctx, "Micro-Namespace", authOpts.Issuer)
+	}
+
+	// We dont't override the header unless the AuthToken option has been specified
+	if !options.AuthToken {
+		return ctx
 	}
 
 	// check to see if we have a valid access token
@@ -84,13 +83,26 @@ func AuthHandler() server.HandlerWrapper {
 				token = strings.TrimPrefix(header, goauth.BearerScheme)
 			}
 
-			// Inspect the token and decode an account
-			account, _ := auth.Inspect(token)
+			// Determine the namespace
+			ns := auth.DefaultAuth.Options().Issuer
+
+			var acc *goauth.Account
+			if a, err := auth.Inspect(token); err == nil && a.Issuer == ns {
+				// We only use accounts issued by the same namespace as the service when verifying against
+				// the rule set.
+				ctx = goauth.ContextWithAccount(ctx, a)
+				acc = a
+			} else if err == nil && ns == namespace.DefaultNamespace {
+				// for the default domain, we want to inject the account into the context so that the
+				// server can access it (since it's designed for multi-tenancy), however we don't want to
+				// use it when verifying against the auth rules, since this will allow any user access to the
+				// services running in the micro namespace
+				ctx = goauth.ContextWithAccount(ctx, a)
+			}
 
 			// ensure only accounts with the correct namespace can access this namespace,
 			// since the auth package will verify access below, and some endpoints could
 			// be public, we allow nil accounts access using the namespace.Public option.
-			ns := auth.DefaultAuth.Options().Issuer
 			err := namespace.Authorize(ctx, ns, namespace.Public(ns))
 			if err == namespace.ErrForbidden {
 				return errors.Forbidden(req.Service(), err.Error())
@@ -106,18 +118,13 @@ func AuthHandler() server.HandlerWrapper {
 			}
 
 			// Verify the caller has access to the resource.
-			err = auth.Verify(account, res, goauth.VerifyNamespace(ns))
-			if err == goauth.ErrForbidden && account != nil {
-				return errors.Forbidden(req.Service(), "Forbidden call made to %v:%v by %v", req.Service(), req.Endpoint(), account.ID)
+			err = auth.Verify(acc, res, goauth.VerifyNamespace(ns))
+			if err == goauth.ErrForbidden && acc != nil {
+				return errors.Forbidden(req.Service(), "Forbidden call made to %v:%v by %v", req.Service(), req.Endpoint(), acc.ID)
 			} else if err == goauth.ErrForbidden {
 				return errors.Unauthorized(req.Service(), "Unauthorized call made to %v:%v", req.Service(), req.Endpoint())
 			} else if err != nil {
 				return errors.InternalServerError(req.Service(), "Error authorizing request: %v", err)
-			}
-
-			// There is an account, set it in the context
-			if account != nil {
-				ctx = goauth.ContextWithAccount(ctx, account)
 			}
 
 			// The user is authorised, allow the call
@@ -158,6 +165,30 @@ func (f *fromServiceWrapper) Publish(ctx context.Context, p client.Message, opts
 // FromService wraps a client to inject service and auth metadata
 func FromService(c client.Client) client.Client {
 	return &fromServiceWrapper{c}
+}
+
+type logWrapper struct {
+	client.Client
+}
+
+func (l *logWrapper) Call(ctx context.Context, req client.Request, rsp interface{}, opts ...client.CallOption) error {
+	logger.Debugf("Calling service %s endpoint %s", req.Service(), req.Endpoint())
+	return l.Client.Call(ctx, req, rsp, opts...)
+}
+
+func LogClient(c client.Client) client.Client {
+	return &logWrapper{c}
+}
+
+func LogHandler() server.HandlerWrapper {
+	// return a handler wrapper
+	return func(h server.HandlerFunc) server.HandlerFunc {
+		// return a function that returns a function
+		return func(ctx context.Context, req server.Request, rsp interface{}) error {
+			logger.Debugf("Serving request for service %s endpoint %s", req.Service(), req.Endpoint())
+			return h(ctx, req, rsp)
+		}
+	}
 }
 
 // HandlerStats wraps a server handler to generate request/error stats

@@ -10,7 +10,6 @@ import (
 	"os/exec"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/micro/go-micro/v3/broker"
@@ -21,11 +20,11 @@ import (
 
 	"github.com/micro/cli/v2"
 	"github.com/micro/go-micro/v3/auth"
-	"github.com/micro/go-micro/v3/cmd"
 	"github.com/micro/go-micro/v3/registry"
 	"github.com/micro/micro/v3/client/cli/util"
 	uconf "github.com/micro/micro/v3/internal/config"
 	"github.com/micro/micro/v3/internal/helper"
+	"github.com/micro/micro/v3/internal/network"
 	_ "github.com/micro/micro/v3/internal/usage"
 	"github.com/micro/micro/v3/internal/wrapper"
 	"github.com/micro/micro/v3/plugin"
@@ -39,12 +38,27 @@ import (
 	muclient "github.com/micro/micro/v3/service/client"
 	muconfig "github.com/micro/micro/v3/service/config"
 	muregistry "github.com/micro/micro/v3/service/registry"
+	muruntime "github.com/micro/micro/v3/service/runtime"
 	muserver "github.com/micro/micro/v3/service/server"
 	mustore "github.com/micro/micro/v3/service/store"
 )
 
+type Cmd interface {
+	// Init initialises options
+	// Note: Use Run to parse command line
+	Init(opts ...Option) error
+	// Options set within this command
+	Options() Options
+	// The cli app within this cmd
+	App() *cli.App
+	// Run executes the command
+	Run() error
+	// Implementation
+	String() string
+}
+
 type command struct {
-	opts cmd.Options
+	opts Options
 	app  *cli.App
 
 	// before is a function which should
@@ -53,16 +67,10 @@ type command struct {
 
 	// indicates whether this is a service
 	service bool
-
-	sync.Mutex
-	// exit is a channel which is closed
-	// on exit for anything that requires
-	// cleanup
-	exit chan bool
 }
 
 var (
-	DefaultCmd cmd.Cmd = New()
+	DefaultCmd Cmd = New()
 
 	// name of the binary
 	name = "micro"
@@ -143,6 +151,21 @@ var (
 			Usage:   "Comma-separated list of broker addresses",
 		},
 		&cli.StringFlag{
+			Name:    "events_tls_ca",
+			Usage:   "Certificate authority for TLS with events",
+			EnvVars: []string{"MICRO_EVENTS_TLS_CA"},
+		},
+		&cli.StringFlag{
+			Name:    "events_tls_cert",
+			Usage:   "Client cert for TLS with events",
+			EnvVars: []string{"MICRO_EVENTS_TLS_CERT"},
+		},
+		&cli.StringFlag{
+			Name:    "events_tls_key",
+			Usage:   "Client key for TLS with events",
+			EnvVars: []string{"MICRO_EVENTS_TLS_KEY"},
+		},
+		&cli.StringFlag{
 			Name:    "broker_tls_ca",
 			Usage:   "Certificate authority for TLS with broker",
 			EnvVars: []string{"MICRO_BROKER_TLS_CA"},
@@ -183,6 +206,11 @@ var (
 			Usage:   "Version of the micro service",
 			EnvVars: []string{"MICRO_SERVICE_VERSION"},
 		},
+		&cli.StringFlag{
+			Name:    "service_address",
+			Usage:   "Address to run the service on",
+			EnvVars: []string{"MICRO_SERVICE_ADDRESS"},
+		},
 	}
 )
 
@@ -190,14 +218,13 @@ func init() {
 	rand.Seed(time.Now().Unix())
 }
 
-func New(opts ...cmd.Option) cmd.Cmd {
-	options := cmd.Options{}
+func New(opts ...Option) *command {
+	options := Options{}
 	for _, o := range opts {
 		o(&options)
 	}
 
 	cmd := new(command)
-	cmd.exit = make(chan bool)
 	cmd.opts = options
 	cmd.app = cli.NewApp()
 	cmd.app.Name = name
@@ -206,7 +233,6 @@ func New(opts ...cmd.Option) cmd.Cmd {
 	cmd.app.Flags = defaultFlags
 	cmd.app.Action = action
 	cmd.app.Before = beforeFromContext(options.Context, cmd.Before)
-	cmd.app.After = cmd.After
 
 	// if this option has been set, we're running a service
 	// and no action needs to be performed. The CMD package
@@ -223,23 +249,8 @@ func (c *command) App() *cli.App {
 	return c.app
 }
 
-func (c *command) Options() cmd.Options {
+func (c *command) Options() Options {
 	return c.opts
-}
-
-// After is executed after any subcommand
-func (c *command) After(ctx *cli.Context) error {
-	c.Lock()
-	defer c.Unlock()
-
-	select {
-	case <-c.exit:
-		return nil
-	default:
-		close(c.exit)
-	}
-
-	return nil
 }
 
 // Before is executed before any subcommand
@@ -279,7 +290,7 @@ func (c *command) Before(ctx *cli.Context) error {
 
 	// set the proxy address
 	var proxy string
-	if c.service {
+	if c.service || ctx.IsSet("proxy_address") {
 		// use the proxy address passed as a flag, this is normally
 		// the micro network
 		proxy = ctx.String("proxy_address")
@@ -292,18 +303,28 @@ func (c *command) Before(ctx *cli.Context) error {
 		muclient.DefaultClient.Init(client.Proxy(proxy))
 	}
 
+	// use the internal network lookup
+	muclient.DefaultClient.Init(
+		client.Lookup(network.Lookup),
+	)
+
 	// wrap the client
 	muclient.DefaultClient = wrapper.AuthClient(muclient.DefaultClient)
 	muclient.DefaultClient = wrapper.CacheClient(muclient.DefaultClient)
 	muclient.DefaultClient = wrapper.TraceCall(muclient.DefaultClient)
 	muclient.DefaultClient = wrapper.FromService(muclient.DefaultClient)
+	muclient.DefaultClient = wrapper.LogClient(muclient.DefaultClient)
 
 	// wrap the server
 	muserver.DefaultServer.Init(
 		server.WrapHandler(wrapper.AuthHandler()),
 		server.WrapHandler(wrapper.TraceHandler()),
 		server.WrapHandler(wrapper.HandlerStats()),
+		server.WrapHandler(wrapper.LogHandler()),
 	)
+
+	// initialize the server with the namespace so it knows which domain to register in
+	muserver.DefaultServer.Init(server.Namespace(ctx.String("namespace")))
 
 	// setup auth
 	authOpts := []auth.Option{}
@@ -387,6 +408,12 @@ func (c *command) Before(ctx *cli.Context) error {
 		logger.Fatalf("Error configuring broker: %v", err)
 	}
 
+	// Setup runtime. This is a temporary fix to trigger the runtime to recreate
+	// its client now the client has been replaced with a wrapped one.
+	if err := muruntime.DefaultRuntime.Init(); err != nil {
+		logger.Fatalf("Error configuring runtime: %v", err)
+	}
+
 	// Setup store options
 	storeOpts := []store.Option{}
 	if len(ctx.String("store_address")) > 0 {
@@ -395,13 +422,22 @@ func (c *command) Before(ctx *cli.Context) error {
 	if len(ctx.String("namespace")) > 0 {
 		storeOpts = append(storeOpts, store.Database(ctx.String("namespace")))
 	}
+	if len(ctx.String("service_name")) > 0 {
+		storeOpts = append(storeOpts, store.Table(ctx.String("service_name")))
+	}
 	if err := mustore.DefaultStore.Init(storeOpts...); err != nil {
 		logger.Fatalf("Error configuring store: %v", err)
 	}
 
-	// set the registry in the client and server
-	muclient.DefaultClient.Init(client.Registry(muregistry.DefaultRegistry))
-	muserver.DefaultServer.Init(server.Registry(muregistry.DefaultRegistry))
+	// set the registry and broker in the client and server
+	muclient.DefaultClient.Init(
+		client.Broker(mubroker.DefaultBroker),
+		client.Registry(muregistry.DefaultRegistry),
+	)
+	muserver.DefaultServer.Init(
+		server.Broker(mubroker.DefaultBroker),
+		server.Registry(muregistry.DefaultRegistry),
+	)
 
 	// setup auth credentials, use local credentials for the CLI and injected creds
 	// for the service.
@@ -416,13 +452,15 @@ func (c *command) Before(ctx *cli.Context) error {
 	}
 
 	// refresh token periodically
-	go refreshAuthToken(c.exit)
+	go refreshAuthToken()
 
 	// Setup config. Do this after auth is configured since it'll load the config
 	// from the service immediately. We only do this if the action is nil, indicating
 	// a service is being run
 	if c.service && muconfig.DefaultConfig == nil {
-		conf, err := config.NewConfig(config.WithSource(configCli.NewSource()))
+		conf, err := config.NewConfig(config.WithSource(configCli.NewSource(
+			configCli.Namespace(ctx.String("namespace")),
+		)))
 		if err != nil {
 			logger.Fatalf("Error configuring config: %v", err)
 		}
@@ -434,7 +472,7 @@ func (c *command) Before(ctx *cli.Context) error {
 	return nil
 }
 
-func (c *command) Init(opts ...cmd.Option) error {
+func (c *command) Init(opts ...Option) error {
 	for _, o := range opts {
 		o(&c.opts)
 	}
@@ -472,15 +510,14 @@ func action(c *cli.Context) error {
 		}
 
 		// lookup the service, e.g. "micro config set" would
-		// firstly check to see if the service "go.micro.config"
+		// firstly check to see if the service, e.g. config
 		// exists within the current namespace, then it would
 		// execute the Config.Set RPC, setting the flags in the
 		// request.
 		if srv, err := lookupService(c); err != nil {
-			cmdStr := strings.Join(c.Args().Slice(), " ")
-			fmt.Printf("Error querying registry for service %v: %v", cmdStr, err)
+			fmt.Printf("Error querying registry for service %v: %v", c.Args().First(), err)
 			os.Exit(1)
-		} else if srv != nil && c.Args().Len() == 1 {
+		} else if srv != nil && shouldRenderHelp(c) {
 			fmt.Println(formatServiceUsage(srv, c.Args().First()))
 			os.Exit(1)
 		} else if srv != nil {

@@ -37,7 +37,10 @@ func setupAuthForCLI(ctx *cli.Context) error {
 
 	// Check if token is valid
 	if time.Now().Before(tok.Expiry.Add(-15 * time.Second)) {
-		auth.DefaultAuth.Init(goauth.ClientToken(tok))
+		auth.DefaultAuth.Init(
+			goauth.ClientToken(tok),
+			goauth.Issuer(ns),
+		)
 		return nil
 	}
 
@@ -47,12 +50,14 @@ func setupAuthForCLI(ctx *cli.Context) error {
 		goauth.WithTokenIssuer(ns),
 	)
 	if err != nil {
-		clitoken.Remove(env.Name)
 		return nil
 	}
 
 	// Save the token to user config file
-	auth.DefaultAuth.Init(goauth.ClientToken(tok))
+	auth.DefaultAuth.Init(
+		goauth.ClientToken(tok),
+		goauth.Issuer(ns),
+	)
 	return clitoken.Save(env.Name, tok)
 }
 
@@ -65,7 +70,7 @@ func setupAuthForService() error {
 	accSecret := opts.Secret
 
 	// if no credentials were provided, self generate an account
-	if len(accID) == 0 && len(accSecret) == 0 {
+	if len(accID) == 0 || len(accSecret) == 0 {
 		opts := []goauth.GenerateOption{
 			goauth.WithType("service"),
 			goauth.WithScopes("service"),
@@ -101,8 +106,8 @@ func setupAuthForService() error {
 }
 
 // refreshAuthToken if it is close to expiring
-func refreshAuthToken(stop chan bool) {
-	// can't refresh a token we dno't have
+func refreshAuthToken() {
+	// can't refresh a token we don't have
 	if auth.DefaultAuth.Options().Token == nil {
 		return
 	}
@@ -131,8 +136,6 @@ func refreshAuthToken(stop chan bool) {
 
 			// set the token
 			auth.DefaultAuth.Init(goauth.ClientToken(tok))
-		case <-stop:
-			return
 		}
 	}
 }

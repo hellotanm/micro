@@ -16,7 +16,7 @@ var (
 		},
 		&cli.StringFlag{
 			Name:  "resource",
-			Usage: "The resource to amend in the format type:name:endpoint, e.g. service:go.micro.auth:*",
+			Usage: "The resource to amend in the format type:name:endpoint, e.g. service:auth:*",
 		},
 		&cli.StringFlag{
 			Name:  "access",
@@ -46,6 +46,7 @@ func init() {
 	cmd.Register(
 		&cli.Command{
 			Name:   "auth",
+			Usage:  "Manage authentication, accounts and rules",
 			Action: helper.UnexpectedSubcommand,
 			Subcommands: []*cli.Command{
 				{

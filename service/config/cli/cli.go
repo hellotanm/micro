@@ -1,19 +1,21 @@
 package config
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/micro/cli/v2"
+	goclient "github.com/micro/go-micro/v3/client"
 	"github.com/micro/micro/v3/client/cli/namespace"
 	"github.com/micro/micro/v3/client/cli/util"
 	"github.com/micro/micro/v3/cmd"
 	cliconfig "github.com/micro/micro/v3/internal/config"
 	"github.com/micro/micro/v3/internal/helper"
+	"github.com/micro/micro/v3/service/client"
 	proto "github.com/micro/micro/v3/service/config/proto"
+	"github.com/micro/micro/v3/service/context"
 	log "github.com/micro/micro/v3/service/logger"
 )
 
@@ -35,7 +37,7 @@ func setConfig(ctx *cli.Context) error {
 	if ctx.Bool("local") {
 		return cliconfig.Set(val, strings.Split(key, ".")...)
 	}
-	pb := proto.NewConfigService("go.micro.config")
+	pb := proto.NewConfigService("config", client.DefaultClient)
 
 	if args.Len() == 0 {
 		return fmt.Errorf("Required usage: micro config set key val")
@@ -48,7 +50,7 @@ func setConfig(ctx *cli.Context) error {
 
 	// TODO: allow the specifying of a config.Key. This will be service name
 	// The actuall key-val set is a path e.g micro/accounts/key
-	_, err = pb.Update(context.TODO(), &proto.UpdateRequest{
+	_, err = pb.Update(context.DefaultContext, &proto.UpdateRequest{
 		Change: &proto.Change{
 			// the current namespace
 			Namespace: ns,
@@ -62,7 +64,7 @@ func setConfig(ctx *cli.Context) error {
 				Timestamp: time.Now().Unix(),
 			},
 		},
-	})
+	}, goclient.WithAuthToken())
 	return err
 }
 
@@ -93,13 +95,13 @@ func getConfig(ctx *cli.Context) error {
 
 	// TODO: allow the specifying of a config.Key. This will be service name
 	// The actuall key-val set is a path e.g micro/accounts/key
-	pb := proto.NewConfigService("go.micro.config")
-	rsp, err := pb.Read(context.TODO(), &proto.ReadRequest{
+	pb := proto.NewConfigService("config", client.DefaultClient)
+	rsp, err := pb.Read(context.DefaultContext, &proto.ReadRequest{
 		// The current namespace,
 		Namespace: ns,
 		// The actual key for the val
 		Path: key,
-	})
+	}, goclient.WithAuthToken())
 	if err != nil {
 		return err
 	}
@@ -137,15 +139,15 @@ func delConfig(ctx *cli.Context) error {
 
 	// TODO: allow the specifying of a config.Key. This will be service name
 	// The actuall key-val set is a path e.g micro/accounts/key
-	pb := proto.NewConfigService("go.micro.config")
-	_, err = pb.Delete(context.TODO(), &proto.DeleteRequest{
+	pb := proto.NewConfigService("config", client.DefaultClient)
+	_, err = pb.Delete(context.DefaultContext, &proto.DeleteRequest{
 		Change: &proto.Change{
 			// The current namespace
 			Namespace: ns,
 			// The actual key for the val
 			Path: key,
 		},
-	})
+	}, goclient.WithAuthToken())
 	return err
 }
 
