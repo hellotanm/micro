@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/micro/cli/v2"
@@ -14,6 +15,7 @@ import (
 	"github.com/micro/micro/v3/client/cli/namespace"
 	"github.com/micro/micro/v3/client/cli/util"
 	"github.com/micro/micro/v3/service/client"
+	"github.com/micro/micro/v3/service/context"
 	"github.com/micro/micro/v3/service/registry"
 )
 
@@ -21,29 +23,39 @@ import (
 // no services are found for a given alias, the registry will return nil and
 // the error will also be nil. An error is only returned if there was an issue
 // listing from the registry.
-func lookupService(ctx *cli.Context) (*goregistry.Service, error) {
+func lookupService(ctx *cli.Context) (*goregistry.Service, string, error) {
 	// use the first arg as the name, e.g. "micro helloworld foo"
 	// would try to call the helloworld service
 	name := ctx.Args().First()
 
+	// if its a built in then we set domain to micro
+	if util.IsBuiltInService(name) {
+		srv, err := serviceWithName(name, goregistry.DefaultDomain)
+		return srv, goregistry.DefaultDomain, err
+	}
+
 	// get the namespace to query the services from
-	dom, err := namespace.Get(util.GetEnv(ctx).Name)
+	domain, err := namespace.Get(util.GetEnv(ctx).Name)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	// lookup from the registry in the current namespace
-	if srv, err := serviceWithName(name, dom); err != nil {
-		return nil, err
+	if srv, err := serviceWithName(name, domain); err != nil {
+		return nil, "", err
 	} else if srv != nil {
-		return srv, nil
+		return srv, domain, nil
 	}
 
-	// check for the service in the default namespace also
-	if dom == goregistry.DefaultDomain {
-		return nil, nil
+	// if the request was made explicitly for the default
+	// domain and we couldn't find it then just return nil
+	if domain == goregistry.DefaultDomain {
+		return nil, "", nil
 	}
-	return serviceWithName(name, goregistry.DefaultDomain)
+
+	// return a lookup in the default domain as a catch all
+	srv, err := serviceWithName(name, goregistry.DefaultDomain)
+	return srv, goregistry.DefaultDomain, err
 }
 
 // formatServiceUsage returns a string containing the service usage.
@@ -76,7 +88,7 @@ func formatServiceUsage(srv *goregistry.Service, alias string) string {
 // callService will call a service using the arguments and flags provided
 // in the context. It will print the result or error to stdout. If there
 // was an error performing the call, it will be returned.
-func callService(srv *goregistry.Service, ctx *cli.Context) error {
+func callService(srv *goregistry.Service, namespace string, ctx *cli.Context) error {
 	// parse the flags and args
 	args, flags, err := splitCmdArgs(ctx)
 	if err != nil {
@@ -107,10 +119,24 @@ func callService(srv *goregistry.Service, ctx *cli.Context) error {
 		return err
 	}
 
+	// create a context for the call based on the cli context
+	callCtx := ctx.Context
+
+	// TODO: are we replacing a context that contains anything?
+	if util.IsBuiltInService(srv.Name) {
+		// replace with default for micro namespace in header
+		callCtx = context.DefaultContext
+	} else if len(namespace) > 0 {
+		// set the namespace
+		callCtx = context.SetNamespace(callCtx, namespace)
+	}
+
+	// TODO: parse out --header or --metadata
+
 	// construct and execute the request using the json content type
 	req := client.NewRequest(srv.Name, endpoint, body, goclient.WithContentType("application/json"))
 	var rsp json.RawMessage
-	if err := client.Call(ctx.Context, req, &rsp, goclient.WithAuthToken()); err != nil {
+	if err := client.Call(callCtx, req, &rsp, goclient.WithAuthToken()); err != nil {
 		return err
 	}
 
@@ -191,13 +217,32 @@ func shouldRenderHelp(ctx *cli.Context) bool {
 // error will be returned.
 func flagsToRequest(flags map[string]string, req *goregistry.Value) (map[string]interface{}, error) {
 	result := map[string]interface{}{}
+	coerceValue := func(valueType, value string) (interface{}, error) {
+		switch valueType {
+		case "bool":
+			return strconv.ParseBool(value)
+		case "int32":
+			return strconv.Atoi(value)
+		case "int64":
+			return strconv.ParseInt(value, 0, 64)
+		case "float64":
+			return strconv.ParseFloat(value, 64)
+		default:
+			return value, nil
+		}
 
+	}
 loop:
 	for key, value := range flags {
 		for _, attr := range req.Values {
+
 			// matches at a top level
 			if attr.Name == key {
-				result[key] = value
+				parsed, err := coerceValue(attr.Type, value)
+				if err != nil {
+					return nil, err
+				}
+				result[key] = parsed
 				continue loop
 			}
 
