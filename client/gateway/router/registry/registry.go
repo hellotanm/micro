@@ -130,7 +130,9 @@ func (r *registryRouter) store(services []*registry.Service) {
 			end := api.Decode(sep.Metadata)
 
 			// if we got nothing skip
-			if err := api.Validate(end); err != nil {
+			// TODO: 替换 api.Validate()，支持前缀通配路径，如：^/xxx/*
+			// if err := api.Validate(end); err != nil {}
+			if err := Validate(end); err != nil {
 				if logger.V(logger.TraceLevel, logger.DefaultLogger) {
 					logger.Tracef("endpoint validation failed: %v", err)
 				}
@@ -190,6 +192,14 @@ func (r *registryRouter) store(services []*registry.Service) {
 			var pcreok bool
 
 			if p[0] == '^' && p[len(p)-1] == '$' {
+				pcrereg, err := regexp.CompilePOSIX(p)
+				if err == nil {
+					cep.pcreregs = append(cep.pcreregs, pcrereg)
+					pcreok = true
+				}
+			}
+
+			if p[0] == '^' && p[len(p)-1] == '*' {
 				pcrereg, err := regexp.CompilePOSIX(p)
 				if err == nil {
 					cep.pcreregs = append(cep.pcreregs, pcrereg)
@@ -499,6 +509,39 @@ func (r *registryRouter) Route(req *http.Request) (*api.Service, error) {
 	}
 
 	return nil, errors.New("unknown handler")
+}
+
+// Validate validates an endpoint to guarantee it won't blow up when being served
+func Validate(e *api.Endpoint) error {
+	if e == nil {
+		return errors.New("endpoint is nil")
+	}
+
+	if len(e.Name) == 0 {
+		return errors.New("name required")
+	}
+
+	for _, p := range e.Path {
+		ps := p[0]
+		pe := p[len(p)-1]
+
+		if ps == '^' && (pe == '$' || pe == '*') {
+			_, err := regexp.CompilePOSIX(p)
+			if err != nil {
+				return err
+			}
+		} else if ps == '^' && pe != '$' {
+			return errors.New("invalid path")
+		} else if ps != '^' && pe == '$' {
+			return errors.New("invalid path")
+		}
+	}
+
+	if len(e.Handler) == 0 {
+		return errors.New("invalid handler")
+	}
+
+	return nil
 }
 
 func newRouter(opt gwRouter.Option, opts ...router.Option) *registryRouter {
