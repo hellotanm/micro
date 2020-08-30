@@ -31,6 +31,7 @@ import (
 	"github.com/micro/micro/v3/internal/helper"
 	rrmicro "github.com/micro/micro/v3/internal/resolver/api"
 	"github.com/micro/micro/v3/internal/stats"
+	"github.com/micro/micro/v3/plugin"
 	"github.com/micro/micro/v3/service"
 	"github.com/micro/micro/v3/service/api/auth"
 	log "github.com/micro/micro/v3/service/logger"
@@ -40,6 +41,8 @@ import (
 	gwRouter "github.com/micro/micro/v3/client/gateway/router"
 	regRouter "github.com/micro/micro/v3/client/gateway/router/registry"
 )
+
+const gatewayModule = "gateway"
 
 var (
 	Name                  = "go.micro.api"
@@ -284,6 +287,13 @@ func Run(ctx *cli.Context, gwOpt ...gwRouter.Option) error {
 		r.PathPrefix(APIPath).Handler(handler.Meta(srv, rt, Namespace))
 	}
 
+	// register all the http handler plugins
+	for _, p := range plugin.Plugins(plugin.Module(gatewayModule)) {
+		if v := p.Handler(); v != nil {
+			h = v(h)
+		}
+	}
+
 	// create the auth wrapper and the server
 	authWrapper := auth.Wrapper(rr, Namespace)
 	api := httpapi.NewServer(Address, server.WrapHandler(authWrapper))
@@ -310,9 +320,19 @@ func Run(ctx *cli.Context, gwOpt ...gwRouter.Option) error {
 }
 
 func Commands(opt ...gwRouter.Option) *cli.Command {
-	return &cli.Command{
+	command := &cli.Command{
 		Name:  "gateway",
 		Usage: "Run the api gateway",
+		Before: func(ctx *cli.Context) error {
+			// initialize plugins
+			for _, p := range plugin.Plugins(plugin.Module(gatewayModule)) {
+				if err := p.Init(ctx); err != nil {
+					return err
+				}
+
+			}
+			return nil
+		},
 		Action: func(ctx *cli.Context) error {
 			Run(ctx, opt...)
 			return nil
@@ -356,4 +376,16 @@ func Commands(opt ...gwRouter.Option) *cli.Command {
 			},
 		),
 	}
+
+	// setup the plugins
+	for _, p := range plugin.Plugins(plugin.Module(gatewayModule)) {
+		if cmds := p.Commands(); len(cmds) > 0 {
+		}
+
+		if flags := p.Flags(); len(flags) > 0 {
+			command.Flags = append(command.Flags, flags...)
+		}
+	}
+
+	return command
 }
