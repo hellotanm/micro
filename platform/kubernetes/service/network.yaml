@@ -18,15 +18,15 @@ spec:
     matchLabels:
       name: micro-network
       micro: runtime
-  strategy:
-    rollingUpdate:
-      maxSurge: 0
-      maxUnavailable: 1
   template:
     metadata:
       labels:
         name: micro-network
         micro: runtime
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: /metrics
+        prometheus.io/port: "9000"
     spec:
       affinity:
         podAntiAffinity:

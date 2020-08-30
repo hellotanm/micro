@@ -18,7 +18,7 @@ import (
 	"github.com/micro/cli/v2"
 	golog "github.com/micro/go-micro/v3/logger"
 	goruntime "github.com/micro/go-micro/v3/runtime"
-	"github.com/micro/go-micro/v3/runtime/local/git"
+	"github.com/micro/go-micro/v3/runtime/local/source/git"
 	"github.com/micro/go-micro/v3/util/file"
 	"github.com/micro/micro/v3/client/cli/namespace"
 	"github.com/micro/micro/v3/client/cli/util"
@@ -51,7 +51,9 @@ var (
 	// DefaultRetries which should be attempted when starting a service
 	DefaultRetries = 3
 	// DefaultImage which should be run
-	DefaultImage = "micro/cells:go"
+	DefaultImage = "micro/cells:micro"
+	// Git orgs we currently support for credentials
+	GitOrgs = []string{"github", "bitbucket", "gitlab"}
 )
 
 const (
@@ -265,42 +267,41 @@ func runService(ctx *cli.Context) error {
 
 func getGitCredentials(repo string) (string, bool) {
 	repo = strings.Split(repo, "/")[0]
-	switch {
-	case strings.Contains(repo, "github"):
-		if creds, err := config.Get("git", "github", "credentials"); err == nil && len(creds) > 0 {
-			return creds, true
+
+	for _, org := range GitOrgs {
+		if !strings.Contains(repo, org) {
+			continue
 		}
-	case strings.Contains(repo, "gitlab"):
-		if creds, err := config.Get("git", "gitlab", "credentials"); err == nil && len(creds) > 0 {
-			return creds, true
-		}
-	case strings.Contains(repo, "bitbucket"):
-		if creds, err := config.Get("git", "bitbucket", "credentials"); err == nil && len(creds) > 0 {
+
+		// check the creds for the org
+		creds, err := config.Get("git", "credentials", org)
+		if err == nil && len(creds) > 0 {
 			return creds, true
 		}
 	}
+
 	return "", false
 }
 
 func killService(ctx *cli.Context) error {
 	// we need some args to run
 	if ctx.Args().Len() == 0 {
-		fmt.Println(RunUsage)
+		fmt.Println(KillUsage)
 		return nil
 	}
 
-	wd, err := os.Getwd()
-	if err != nil {
-		return err
+	name := ctx.Args().Get(0)
+	ref := ""
+	if parts := strings.Split(name, "@"); len(parts) > 1 {
+		name = parts[0]
+		ref = parts[1]
 	}
-	source, err := git.ParseSourceLocal(wd, appendSourceBase(ctx, wd, ctx.Args().Get(0)))
-	if err != nil {
-		return err
+	if ref == "" {
+		ref = "latest"
 	}
 	service := &goruntime.Service{
-		Name:    source.RuntimeName(),
-		Source:  source.RuntimeSource(),
-		Version: source.Ref,
+		Name:    name,
+		Version: ref,
 	}
 
 	// determine the namespace
@@ -393,21 +394,28 @@ func updateService(ctx *cli.Context) error {
 		if err != nil {
 			return err
 		}
-	} else {
-		err := sourceExists(source)
-		if err != nil {
-			return err
-		}
 	}
 
+	runtimeName := source.RuntimeName()
 	runtimeSource := source.RuntimeSource()
+	ref := source.Ref
 	if source.Local {
 		runtimeSource = newSource
+	} else {
+		runtimeSource = ""
+		name := ctx.Args().Get(0)
+		if parts := strings.Split(name, "@"); len(parts) > 1 {
+			runtimeName = parts[0]
+			ref = parts[1]
+		}
+	}
+	if ref == "" {
+		ref = "latest"
 	}
 	service := &goruntime.Service{
-		Name:    source.RuntimeName(),
+		Name:    runtimeName,
 		Source:  runtimeSource,
-		Version: source.Ref,
+		Version: ref,
 	}
 
 	// determine the namespace
