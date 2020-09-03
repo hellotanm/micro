@@ -17,7 +17,8 @@ import (
 	"github.com/micro/go-micro/v3/registry"
 	"github.com/micro/go-micro/v3/registry/cache"
 	util "github.com/micro/go-micro/v3/util/router"
-	gwRouter "github.com/micro/micro/v3/client/gateway/router"
+
+	gwRouter "github.com/micro/micro/v3/service/gateway/router"
 )
 
 // endpoint struct, that holds compiled pcre

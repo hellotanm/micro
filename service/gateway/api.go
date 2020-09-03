@@ -38,8 +38,8 @@ import (
 	muregistry "github.com/micro/micro/v3/service/registry"
 	"github.com/micro/micro/v3/service/store"
 
-	gwRouter "github.com/micro/micro/v3/client/gateway/router"
-	regRouter "github.com/micro/micro/v3/client/gateway/router/registry"
+	gwRouter "github.com/micro/micro/v3/service/gateway/router"
+	regRouter "github.com/micro/micro/v3/service/gateway/router/registry"
 )
 
 const gatewayModule = "gateway"

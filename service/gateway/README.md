@@ -15,9 +15,10 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/micro/micro/v3/client/gateway"
-	gwRouter "github.com/micro/micro/v3/client/gateway/router"
 	"github.com/micro/micro/v3/cmd"
+	
+	"github.com/micro/micro/v3/service/gateway"
+	gwRouter "github.com/micro/micro/v3/service/gateway/router"
 )
 
 func main() {
