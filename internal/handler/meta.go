@@ -1,6 +1,8 @@
 package handler
 
 import (
+	jsoniter "github.com/json-iterator/go"
+	"log"
 	"net/http"
 
 	"github.com/micro/go-micro/v3/api/handler"
@@ -8,8 +10,6 @@ import (
 	"github.com/micro/go-micro/v3/api/router"
 	"github.com/micro/go-micro/v3/client"
 	"github.com/micro/micro/v3/service"
-	"github.com/micro/micro/v3/service/errors"
-
 	// TODO: only import handler package
 	aapi "github.com/micro/go-micro/v3/api/handler/api"
 	ahttp "github.com/micro/go-micro/v3/api/handler/http"
@@ -26,10 +26,27 @@ type metaHandler struct {
 func (m *metaHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	service, err := m.r.Route(r)
 	if err != nil {
-		er := errors.InternalServerError(m.ns, err.Error())
+		//er := errors.InternalServerError(m.ns, err.Error())
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(500)
-		w.Write([]byte(er.Error()))
+		w.WriteHeader(404)
+
+		v := struct {
+			Code   int         `json:"code"`
+			ErrMsg string      `json:"err_msg"`
+			Data   interface{} `json:"data"`
+		}{
+			Code:   404,
+			ErrMsg: err.Error(),
+			Data:   "",
+		}
+
+		j := jsoniter.ConfigCompatibleWithStandardLibrary
+		out, e := j.Marshal(&v)
+
+		log.Fatalf(e.Error())
+
+		w.Write(out)
+
 		return
 	}
 
